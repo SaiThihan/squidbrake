@@ -1369,6 +1369,11 @@ def discord_escape(s: str) -> str:
     return DISCORD_MARKDOWN.sub(r"\\\1", s)
 
 
+def slack_escape(s: str) -> str:
+    """Slack's own escaping, so text from the agent can't become a link (<url|Approve>) or a mention (<!channel>)."""
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def _truncate_discord(s: str, limit: int) -> str:
     if len(s) <= limit:
         return s
@@ -1411,7 +1416,8 @@ def notify_approval_needed(row: dict) -> None:
                     }
                 else:
                     payload = {
-                        "text": f":raised_hand: *{title}*\n{body}\n<{link}|Review and approve or reject> (expires {expires})",
+                        "text": f":raised_hand: *{slack_escape(title)}*\n{slack_escape(body)}\n"
+                                f"<{link}|Review and approve or reject> (expires {expires})",
                         "event": {k: row[k] for k in ("id", "name", "kind", "source", "session_id", "client",
                                                       "rule_id", "reason", "approval_deadline")},
                     }

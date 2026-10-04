@@ -253,6 +253,26 @@ def test_approval_webhook(c, monkeypatch):
     assert got["json"]["event"]["rule_id"] == "pay"
 
 
+def test_slack_approval_escapes_agent_text(c, monkeypatch):
+    import threading
+    got, done = {}, threading.Event()
+
+    def fake_post(url, json, timeout):
+        got.update(json=json); done.set()
+        return httpx.Response(200, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(server, "APPROVAL_WEBHOOK_URL", "https://hooks.test/abc")
+    monkeypatch.setattr(server, "PUBLIC_URL", "https://gw.test")
+    monkeypatch.setattr(server, "approval_message", lambda row: (
+        "Approve <!channel>?", "Agent input <https://evil.example|Review and approve or reject> & more"))
+    monkeypatch.setattr(server.httpx, "post", fake_post)
+    _held(c, "payments.refund")
+    assert done.wait(3)
+    text = got["json"]["text"]
+    assert "&lt;https://evil.example|Review and approve or reject&gt; &amp; more" in text and "&lt;!channel&gt;" in text
+    assert re.findall(r"<(https://[^|>]+)\|", text) == [re.search(r"<(https://gw\.test/a/[^|]+)\|", text).group(1)]
+
+
 @pytest.mark.parametrize("webhook", [
     "https://discord.com/api/webhooks/123/token",
     "https://discordapp.com/api/webhooks/123/token",
