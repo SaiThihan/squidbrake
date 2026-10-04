@@ -40,7 +40,11 @@ Free and open source (Apache 2.0). Runs on your laptop or your own server; your 
   own agent asked for), an emergency stop (all agents, one agent, or one conversation, which also ends Claude Code's
   turn), reports, CSV export, and evidence anyone can verify offline (`python verify.py`).
 - **Shows what it will change, and keeps an undo:** before a risky command, the approver sees it measured on the
-  developer's machine ("removes 3 commits from origin/main: fix login, ...", "deletes 1,204 files (56 MB) in data").
+  developer's machine ("removes 3 commits from origin/main: fix login, ...", "deletes 1,204 files (56 MB) in data",
+  "deletes 4,312 rows of 10,240 in orders", "destroys 12 resources in workspace prod, including 1 that holds data:
+  aws_db_instance.main", "deletes the bucket and all 8,200 objects (14.0 GB)"). Database rows are counted with the
+  same WHERE in a read-only session with a timeout (psql, mysql, sqlite3); terraform is read from its state or a plan
+  without refresh or lock; AWS and Kubernetes use list and describe calls with the command's own credentials.
   Right before an approved delete, `git reset --hard` or `git clean` runs, Squidbrake keeps a copy;
   `squidbrake undo` lists them and `squidbrake undo ID` puts one back.
 - **Can't be switched off:** `squidbrake lockdown --url https://gateway.yourcompany.com` writes the managed-settings
