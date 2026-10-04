@@ -58,7 +58,7 @@ def test_guard_with_no_configs(tmp_path, monkeypatch, capsys):
     assert "No MCP configs found" in capsys.readouterr().out
 
 
-def test_connect_all_and_undo(tmp_path, monkeypatch):
+def test_connect_all_and_undo(tmp_path, monkeypatch, capsys):
     home = _home(tmp_path, monkeypatch)
     monkeypatch.setattr(connect.shutil, "which", lambda name: None)       # don't call a real `claude` / `codex`
     for d in (".claude", ".cursor", ".codex"):
@@ -74,8 +74,10 @@ def test_connect_all_and_undo(tmp_path, monkeypatch):
     assert "agent_hook.py" in (home / ".codex" / "hooks.json").read_text(encoding="utf-8")
     assert not (home / ".gemini").exists()                                 # not installed: left alone
     assert json.loads(mcp.read_text(encoding="utf-8"))["mcpServers"]["github"]["args"][0] == str(connect.PROXY)
+    assert connect.FOUNDER_CALL in capsys.readouterr().out                  # how a team can reach us; only printed
 
     connect.main(["all", "--remove", "--yes"])
+    assert connect.FOUNDER_CALL not in capsys.readouterr().out
     assert json.loads(mcp.read_text(encoding="utf-8")) == original
     assert "hooks" not in json.loads((home / ".claude" / "settings.json").read_text(encoding="utf-8"))
     assert not (home / ".codex" / "hooks.json").exists()

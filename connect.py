@@ -601,9 +601,15 @@ def connect_all(args) -> None:
     agents(each)
     print("\nMCP servers")
     guard(each)
-    if not args.remove and not args.yes and sys.stdin.isatty():
+    if args.remove:
+        return
+    print(f"\nUsing Squidbrake with a team? 15 minutes with the founder: {FOUNDER_CALL}")
+    if not args.yes and sys.stdin.isatty():
         offer_counts()
 
+
+# Only printed, never opened or sent: the team can't see who installs, so this is how people can find us
+FOUNDER_CALL = "https://calendly.com/pulkitbatra2024/new-meeting-1"
 
 # Counts from installs that aren't pilots: asked once, default no, never in scripts (--yes) or without a terminal
 COMMUNITY_SERVER, COMMUNITY_CODE = "https://pilots.squidbrake.com", "community-opt-in-ins-a42929"
