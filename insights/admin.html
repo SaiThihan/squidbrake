@@ -148,8 +148,8 @@ function message(company, link, hosted) {
 
 async function load() {
   if (!key) return login();
-  let d, me;
-  try { [d, me] = await Promise.all([api("/v1/admin/overview"), api("/v1/admin/me")]); }
+  let d, me, asks;
+  try { [d, me, asks] = await Promise.all([api("/v1/admin/overview"), api("/v1/admin/me"), api("/v1/admin/team-requests")]); }
   catch (e) { if (e.message !== "unauthorized") app.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
   const w = d.week;
   app.innerHTML = `
@@ -169,6 +169,7 @@ async function load() {
       </div>
       <div class="sub" style="padding:0 16px 14px">${d.pilots.length} pilots · ${d.installs} installs · ${w.events.toLocaleString()} actions this week${w.would_block ? ` · ${w.would_block} would block (shadow)` : ""}</div>
     </section>
+    ${teamPanel(asks)}
     <section class="panel"><h2>New pilot</h2>
       <form class="new" id="nf"><input id="nc" placeholder="Company (e.g. Acme)" required maxlength="80">
         <input id="nk" placeholder="Contact (name, email, phone)" maxlength="120">
@@ -197,6 +198,29 @@ async function load() {
     await api(`/v1/admin/pilots/${encodeURIComponent(b.dataset.del)}`, { method: "DELETE" }); load();
   });
   document.querySelectorAll("[data-copy]").forEach((b) => b.onclick = () => copy(b.dataset.copy, b));
+  document.querySelectorAll("[data-done]").forEach((b) => b.onclick = async () => {
+    await api(`/v1/admin/team-requests/${b.dataset.done}`, { method: "POST", body: JSON.stringify({ done: b.dataset.to === "1" }) });
+    load();
+  });
+}
+
+// Teams that filled in /team (from `connect all`, the dashboard, or a shared link): people who installed on their own
+const FROM = { cli: "connect all", dashboard: "dashboard", github: "GitHub", site: "website" };
+function teamPanel(asks) {
+  const open = asks.filter((a) => !a.done);
+  const rows = asks.slice(0, 50).map((a) => `<tr${a.done ? ' style="opacity:.55"' : ""}>
+    <td><b>${esc(a.name)}</b><div class="mini"><a href="mailto:${esc(a.email)}">${esc(a.email)}</a></div></td>
+    <td>${esc(a.company || "–")}<div class="mini">${a.team_size ? esc(a.team_size) + " people" : ""}</div></td>
+    <td>${esc(a.agents || "–")}</td><td style="max-width:340px;white-space:pre-wrap">${esc(a.note || "")}</td>
+    <td>${esc(FROM[a.source] || a.source || "–")}<div class="mini">${ago(a.created_at)}</div></td>
+    <td><button class="btn" data-done="${a.id}" data-to="${a.done ? 0 : 1}">${a.done ? "Reopen" : "Mark replied"}</button></td></tr>`).join("");
+  return `<section class="panel"${open.length ? ' style="border-color:var(--accent)"' : ""}><h2>Teams asking for help
+      ${open.length ? `<span class="sub">${open.length} waiting for a reply</span>` : ""}
+      <a class="btn" style="margin-left:auto" href="/team" target="_blank" rel="noopener">Open the form</a></h2>
+    ${asks.length ? `<div class="table-wrap"><table><thead><tr><th>Who</th><th>Company</th><th>Agents</th><th>Note</th>
+      <th>From</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+      : `<div class="empty">Nobody yet. The form is linked from <code>connect all</code> and the dashboard's Team page.</div>`}
+  </section>`;
 }
 
 const card = (k, v) => `<div class="card"><div class="k">${k}</div><div class="v">${Number(v || 0).toLocaleString()}</div></div>`;

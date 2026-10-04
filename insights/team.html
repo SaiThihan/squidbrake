@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Squidbrake for teams</title>
+<style>
+:root { --bg:#fafaf9; --card:#fff; --ink:#18181b; --muted:#71717a; --line:#e4e4e7; --code:#f4f4f5; --accent:#dc2626;
+        --ok:#16a34a; }
+@media (prefers-color-scheme: dark) { :root { --bg:#111114; --card:#1a1a1f; --ink:#f4f4f5; --muted:#a1a1aa; --line:#2e2e35;
+        --code:#232329; --accent:#ef4444; --ok:#22c55e; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif; }
+main { max-width:680px; margin:0 auto; padding:40px 16px 64px; }
+.brand { font-weight:800; font-size:20px; letter-spacing:-.01em; }
+.brand span { color:var(--accent); }
+h1 { font-size:32px; line-height:1.2; margin:18px 0 8px; letter-spacing:-.02em; }
+.lead { color:var(--muted); margin:0 0 22px; font-size:17px; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px; margin:0 0 14px; }
+ul.get { margin:0; padding-left:20px; } ul.get li { margin:4px 0; } ul.get li b { color:var(--ink); }
+form { display:grid; grid-template-columns:1fr 1fr; gap:12px 14px; }
+label { display:flex; flex-direction:column; gap:4px; font-size:14px; font-weight:600; }
+label .opt { color:var(--muted); font-weight:400; }
+.full { grid-column:1 / -1; }
+input, select, textarea { font:inherit; font-weight:400; color:var(--ink); background:var(--bg); border:1px solid var(--line);
+                          border-radius:9px; padding:9px 11px; width:100%; }
+textarea { min-height:84px; resize:vertical; }
+button { font:inherit; font-weight:600; border:0; border-radius:10px; padding:11px 18px; background:var(--ink); color:var(--bg);
+         cursor:pointer; justify-self:start; }
+button:disabled { opacity:.6; cursor:default; }
+.hp { position:absolute; left:-10000px; width:1px; height:1px; overflow:hidden; }
+.err { color:var(--accent); font-size:14px; margin:0; }
+.done { border-left:4px solid var(--ok); }
+.foot { color:var(--muted); font-size:14px; margin-top:22px; }
+a { color:var(--accent); }
+@media (max-width:560px) { form { grid-template-columns:1fr; } h1 { font-size:26px; } }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">Squid<span>brake</span></div>
+  <h1>Rolling Squidbrake out to a team?</h1>
+  <p class="lead">Tell us a little about your team and we'll get back to you personally to help set it up.</p>
+
+  <div class="card">
+    <ul class="get">
+      <li><b>Rules for your stack</b>: what your agents may do on their own, and what waits for a person.</li>
+      <li><b>Approvers</b> on their phone or in Slack, with second-person approval so nobody approves their own agent.</li>
+      <li><b>A shared dashboard</b>, hosted if you'd rather not run a server.</li>
+      <li><b>An evidence pack</b> for your auditor or your customers' security questionnaires.</li>
+    </ul>
+  </div>
+
+  <div class="card" id="box">
+    <form id="f" novalidate>
+      <label>Your name <input name="name" required maxlength="80" autocomplete="name"></label>
+      <label>Work email <input name="email" type="email" required maxlength="200" autocomplete="email"></label>
+      <label>Company <span class="opt">optional</span><input name="company" maxlength="120" autocomplete="organization"></label>
+      <label>Team size <span class="opt">optional</span>
+        <select name="team_size"><option value="">Choose</option><option>1-5</option><option>6-20</option>
+          <option>21-100</option><option>100+</option></select></label>
+      <label class="full">Which agents do you use? <span class="opt">optional</span>
+        <input name="agents" maxlength="200" placeholder="Claude Code, Cursor, Codex, Gemini CLI..."></label>
+      <label class="full">Anything we should know? <span class="opt">optional</span>
+        <textarea name="note" maxlength="1000" placeholder="What you want to protect, who should approve, an audit coming up..."></textarea></label>
+      <label class="hp" aria-hidden="true">Website <input name="website" tabindex="-1" autocomplete="off"></label>
+      <p class="err full" id="err" role="alert"></p>
+      <button id="go">Send</button>
+    </form>
+  </div>
+
+  <p class="foot">We keep only what you type here, to reply to you. Squidbrake itself never sends us anything about your
+    installs unless you opt in. <span id="contact"></span></p>
+</main>
+<script>
+const CONTACT = __CONTACT__;
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+if (CONTACT) document.getElementById("contact").textContent = "Or reach us directly: " + CONTACT;
+const f = document.getElementById("f"), err = document.getElementById("err"), go = document.getElementById("go");
+const source = new URLSearchParams(location.search).get("from") || "";
+f.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  err.textContent = "";
+  const data = Object.fromEntries(new FormData(f));
+  if (!data.name.trim()) { err.textContent = "Please add your name."; f.name.focus(); return; }
+  if (!f.email.checkValidity() || !data.email.trim()) { err.textContent = "Please add a valid email."; f.email.focus(); return; }
+  go.disabled = true; go.textContent = "Sending...";
+  try {
+    const r = await fetch("/v1/team-request", { method: "POST", headers: { "Content-Type": "application/json" },
+                                                body: JSON.stringify({ ...data, source }) });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || "Something went wrong, please try again.");
+    document.getElementById("box").className = "card done";
+    document.getElementById("box").innerHTML = `<b>Thanks, ${esc(data.name.trim())}.</b>
+      <p style="margin:6px 0 0;color:var(--muted)">We'll write to ${esc(data.email.trim())} soon.</p>`;
+  } catch (e2) {
+    err.textContent = typeof e2.message === "string" ? e2.message : "Something went wrong, please try again.";
+    go.disabled = false; go.textContent = "Send";
+  }
+});
+</script>
+</body>
+</html>

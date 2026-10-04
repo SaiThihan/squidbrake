@@ -74,7 +74,8 @@ def test_connect_all_and_undo(tmp_path, monkeypatch, capsys):
     assert "agent_hook.py" in (home / ".codex" / "hooks.json").read_text(encoding="utf-8")
     assert not (home / ".gemini").exists()                                 # not installed: left alone
     assert json.loads(mcp.read_text(encoding="utf-8"))["mcpServers"]["github"]["args"][0] == str(connect.PROXY)
-    assert connect.FOUNDER_CALL in capsys.readouterr().out                  # how a team can reach us; only printed
+    out = capsys.readouterr().out
+    assert connect.FOUNDER_CALL in out and connect.TEAM_FORM in out        # how a team can reach us; only printed
 
     connect.main(["all", "--remove", "--yes"])
     assert connect.FOUNDER_CALL not in capsys.readouterr().out

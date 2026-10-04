@@ -4,6 +4,8 @@ Squidbrake Insights: see how pilot users use Squidbrake, without ever seeing wha
   /start/<code>        the page you send a founder: their install commands, with their pilot code filled in
   /install.ps1 | .sh   one-line installers (pipx + squidbrake)
   /admin               your dashboard (sign in with your password, or INSIGHTS_ADMIN_KEY): pilots, activity, blocks
+  /team                a form for teams that want help setting Squidbrake up (linked from `connect all` and the
+                       dashboard): the only way to hear from installs that aren't pilots, since nothing is tracked
   POST /v1/pilot/join  an install joins with a code (squidbrake pilot join)
   POST /v1/ping        an install's usage counts (every 6 hours)
 
@@ -57,6 +59,9 @@ with db() as _c:
         PRIMARY KEY (install_id, day));
     CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, created_at TEXT NOT NULL, expires_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS team_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL,
+        name TEXT NOT NULL, email TEXT NOT NULL, company TEXT, team_size TEXT, agents TEXT, note TEXT, source TEXT,
+        done INTEGER NOT NULL DEFAULT 0);
     """)
     # hosted pilots: their own gateway at <subdomain>.<HOSTED_DOMAIN>, started by provision.py on the server
     _have = {r[1] for r in _c.execute("PRAGMA table_info(pilots)")}
@@ -450,6 +455,63 @@ def scorecard(pilots: list[dict], week: dict) -> dict:
     }
 
 
+# --------------------------------------------------------------------------- teams asking for help
+# Someone who installed Squidbrake on their own fills this in to get help rolling it out to a team. It stores only
+# what they typed (no IP address); `source` says which link they followed (cli, dashboard), not who they are.
+
+EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,190}\.[^@\s]{2,}$")
+SOURCES = ("cli", "dashboard", "github", "site")
+_requests: dict[str, list[float]] = {}
+
+
+class TeamRequestIn(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    email: str = Field(max_length=200)
+    company: str = Field(default="", max_length=120)
+    team_size: str = Field(default="", max_length=20)
+    agents: str = Field(default="", max_length=200)
+    note: str = Field(default="", max_length=1000)
+    source: str = Field(default="", max_length=20)
+    website: str = Field(default="", max_length=200)   # a field people don't see: bots fill it in
+
+
+@app.post("/v1/team-request")
+def team_request(t: TeamRequestIn, request: Request):
+    ip = request.client.host if request.client else ""
+    recent = [x for x in _requests.get(ip, []) if time.time() - x < 3600]
+    if len(recent) >= 5:
+        raise HTTPException(429, "too many requests from here: try again in an hour")
+    _requests[ip] = recent + [time.time()]
+    if not EMAIL_RE.match(t.email.strip()):
+        raise HTTPException(422, "that email address doesn't look right")
+    if t.website:                                       # a bot: say thanks, keep nothing
+        return {"ok": True}
+    with _lock, db() as c:
+        c.execute("INSERT INTO team_requests (created_at, name, email, company, team_size, agents, note, source) "
+                  "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                  (now(), t.name.strip(), t.email.strip(), t.company.strip(), t.team_size.strip(), t.agents.strip(),
+                   t.note.strip(), t.source if t.source in SOURCES else ""))
+    return {"ok": True}
+
+
+@app.get("/v1/admin/team-requests", dependencies=[Depends(admin)])
+def team_requests():
+    with db() as c:
+        return [dict(r) for r in c.execute("SELECT * FROM team_requests ORDER BY id DESC LIMIT 200")]
+
+
+class DoneIn(BaseModel):
+    done: bool
+
+
+@app.post("/v1/admin/team-requests/{rid}", dependencies=[Depends(admin)])
+def team_request_done(rid: int, d: DoneIn):
+    with _lock, db() as c:
+        if not c.execute("UPDATE team_requests SET done=? WHERE id=?", (int(d.done), rid)).rowcount:
+            raise HTTPException(404)
+    return {"ok": True}
+
+
 # --------------------------------------------------------------------------- pages
 
 PAGE = lambda name: (HERE / name).read_text(encoding="utf-8")
@@ -469,6 +531,11 @@ def start_page(code: str, request: Request):
             "hosted": bool(p["hosted"]), "dashboard": dashboard_url(p["subdomain"]), "state": p["state"],
             "keys_ready": bool(p["admin_key"]), "keys_shown": bool(p["keys_revealed_at"])}
     return HTMLResponse(PAGE("start.html").replace("__DATA__", json.dumps(data).replace("</", "<\\/")))
+
+
+@app.get("/team", response_class=HTMLResponse)
+def team_page():
+    return HTMLResponse(PAGE("team.html").replace("__CONTACT__", json.dumps(CONTACT).replace("</", "<\/")))
 
 
 @app.get("/admin", response_class=HTMLResponse)

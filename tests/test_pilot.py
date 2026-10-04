@@ -181,3 +181,33 @@ def test_admin_password_and_sessions(insights):
         insights.post("/v1/admin/login", json={"password": "guess"})
     assert insights.post("/v1/admin/login", json={"password": "a-long-password-1"}).status_code == 429   # slowed down
     insights_app._failures.clear()
+
+def test_team_request_form(insights):
+    """Teams that installed on their own can ask for help; only what they typed is kept, and only the admin sees it."""
+    admin = {"X-Admin-Key": os.environ["INSIGHTS_ADMIN_KEY"]}
+    page = insights.get("/team")
+    assert page.status_code == 200 and "__CONTACT__" not in page.text
+    ask = {"name": "Asha", "email": "asha@example.com", "company": "Pilot B", "team_size": "6-20",
+           "agents": "Claude Code", "note": "audit in March", "source": "cli"}
+    assert insights.post("/v1/team-request", json=ask).json() == {"ok": True}
+    assert insights.post("/v1/team-request", json={**ask, "email": "not-an-email"}).status_code == 422
+    assert insights.post("/v1/team-request", json={**ask, "name": "Bot", "website": "http://spam"}).json() == {"ok": True}
+    assert insights.post("/v1/team-request", json={**ask, "name": "Odd", "source": "elsewhere"}).status_code == 200
+
+    assert insights.get("/v1/admin/team-requests").status_code == 401
+    rows = insights.get("/v1/admin/team-requests", headers=admin).json()
+    names = [r["name"] for r in rows]
+    assert "Asha" in names and "Bot" not in names                     # the hidden field caught the bot
+    asha = next(r for r in rows if r["name"] == "Asha")
+    assert asha["source"] == "cli" and asha["done"] == 0
+    assert next(r for r in rows if r["name"] == "Odd")["source"] == ""   # only known link names are kept
+    assert set(asha) == {"id", "created_at", "name", "email", "company", "team_size", "agents", "note", "source", "done"}
+
+    assert insights.post(f"/v1/admin/team-requests/{asha['id']}", json={"done": True}).status_code == 401
+    assert insights.post(f"/v1/admin/team-requests/{asha['id']}", headers=admin, json={"done": True}).status_code == 200
+    assert next(r for r in insights.get("/v1/admin/team-requests", headers=admin).json() if r["id"] == asha["id"])["done"] == 1
+    assert insights.post("/v1/admin/team-requests/999999", headers=admin, json={"done": True}).status_code == 404
+
+    for _ in range(5):                                                  # 5 an hour from one address
+        insights.post("/v1/team-request", json=ask)
+    assert insights.post("/v1/team-request", json=ask).status_code == 429
