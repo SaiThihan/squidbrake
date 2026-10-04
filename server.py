@@ -1362,6 +1362,25 @@ def approval_message(row: dict) -> tuple[str, str]:
     return title, body
 
 
+DISCORD_MARKDOWN = re.compile(r"([\\`*_~|>\[\]()#-])")
+
+
+def discord_escape(s: str) -> str:
+    return DISCORD_MARKDOWN.sub(r"\\\1", s)
+
+
+def _truncate_discord(s: str, limit: int) -> str:
+    if len(s) <= limit:
+        return s
+    if limit <= 0:
+        return ""
+    truncated = s[:limit - 1]
+    trailing_backslashes = len(truncated) - len(truncated.rstrip("\\"))
+    if trailing_backslashes % 2:
+        truncated = truncated[:-1]
+    return truncated + "…"
+
+
 def notify_approval_needed(row: dict) -> None:
     """Tell a human, wherever they are: Slack (or any incoming webhook) and/or a phone push via ntfy.
     Both carry a signed link that opens a one-tap Approve / Reject page."""
@@ -1377,11 +1396,26 @@ def notify_approval_needed(row: dict) -> None:
     def send():
         if cfg["slack_webhook"]:
             try:
-                httpx.post(cfg["slack_webhook"], timeout=10, json={
-                    "text": f":raised_hand: *{title}*\n{body}\n<{link}|Review and approve or reject> (expires {expires})",
-                    "event": {k: row[k] for k in ("id", "name", "kind", "source", "session_id", "client",
-                                                  "rule_id", "reason", "approval_deadline")},
-                }).raise_for_status()
+                if any(host in cfg["slack_webhook"] for host in (
+                        "discord.com/api/webhooks/", "discordapp.com/api/webhooks/")):
+                    link_message = f"[Review and approve or reject]({link}) (expires {expires})"
+                    content_limit = 1999
+                    prefix = f"**{discord_escape(title)}**\n"
+                    suffix = f"\n{link_message}"
+                    prefix = _truncate_discord(prefix, max(0, content_limit - len(suffix)))
+                    body_limit = max(0, content_limit - len(prefix) - len(suffix))
+                    discord_body = _truncate_discord(discord_escape(body), body_limit)
+                    payload = {
+                        "content": f"{prefix}{discord_body}{suffix}",
+                        "allowed_mentions": {"parse": []},
+                    }
+                else:
+                    payload = {
+                        "text": f":raised_hand: *{title}*\n{body}\n<{link}|Review and approve or reject> (expires {expires})",
+                        "event": {k: row[k] for k in ("id", "name", "kind", "source", "session_id", "client",
+                                                      "rule_id", "reason", "approval_deadline")},
+                    }
+                httpx.post(cfg["slack_webhook"], timeout=10, json=payload).raise_for_status()
             except Exception:
                 log.exception("Slack/webhook notification failed for event %s", row["id"])
         if cfg["ntfy_topic"]:
