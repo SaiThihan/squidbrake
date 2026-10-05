@@ -175,7 +175,10 @@ def check(agent: str, name: str, inp: dict, session: str | None) -> None:
     by, note = d.get("decided_by"), d.get("decision_note")
     if d.get("rule_id") in ("emergency-stop", "session-stop") or (note or "").startswith("The session was stopped"):
         answer(agent, False, f"Squidbrake: {note or d.get('reason')}. Stop working and tell the user.", stop=True)
-    if by and by != "timeout":
+    if by == "timeout":
+        answer(agent, False, "Squidbrake: nobody approved this in time, so it didn't run. Ask the user to approve it in "
+                             f"the dashboard ({URL}/dashboard) when you try again.")
+    if by:
         answer(agent, False, f"Squidbrake: rejected by {by}." + (f' Note: "{note}".' if note else "")
                + " Don't retry it; ask the user how to proceed.")
     answer(agent, False, f"Squidbrake blocked this (rule '{d.get('rule_id')}'): {(d.get('reason') or '').rstrip('.')}. "

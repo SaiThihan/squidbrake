@@ -131,7 +131,10 @@ def pre(ev: dict, http: httpx.Client) -> None:
         by = d.get("decided_by")
         if d.get("rule_id") in ("emergency-stop", "session-stop") or                 (d.get("decision_note") or "").startswith("The session was stopped"):
             deny(f"Squidbrake: {d.get('decision_note') or d.get('reason')}. Stop working and tell the user.", stop=True)
-        if by and by != "timeout":
+        if by == "timeout":
+            deny("Squidbrake: nobody approved this in time, so it didn't run. Ask the user to approve it in the "
+                 f"dashboard ({GATEWAY_URL}/dashboard) when you try again.")
+        if by:
             note = f' Note: "{d["decision_note"]}".' if d.get("decision_note") else ""
             deny(f"Squidbrake: rejected by {by}.{note} Don't retry it; ask the user how to proceed.")
         deny(f"Squidbrake blocked this (rule '{d.get('rule_id')}'): {(d.get('reason') or '').rstrip('.')}. Don't try to work around it.")
