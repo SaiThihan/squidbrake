@@ -162,3 +162,11 @@ def test_unreadable_input_is_blocked_and_empty_input_is_not(raw):
     out = raw("cursor", b"\xef\xbb\xbf{not json")
     assert out["permission"] == "deny" and "couldn't read" in out["user_message"]
     assert raw("cursor", b"") == {"permission": "allow"}                    # nothing to check
+
+def test_cursor_without_cwd_measures_in_the_open_project():
+    """Cursor can send an empty cwd: the open project is where `rm -rf build` would run, and so where it's measured."""
+    ev = {"hook_event_name": "beforeShellExecution", "command": "rm -rf build", "cwd": "", "conversation_id": "c1",
+          "workspace_roots": ["/e:/proj"]}
+    assert agent_hook.parse("cursor", ev)[0] == ("Bash", {"command": "rm -rf build", "cwd": "e:/proj"})
+    ev["workspace_roots"] = ["/Users/n/proj"]
+    assert agent_hook.parse("cursor", ev)[0][1]["cwd"] == "/Users/n/proj"

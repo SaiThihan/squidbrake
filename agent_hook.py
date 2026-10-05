@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import sys
 import time
@@ -84,7 +85,11 @@ def parse(agent: str, ev: dict) -> tuple[tuple[str, dict] | None, str | None]:
     if agent == "cursor":
         session = ev.get("conversation_id")
         if ev.get("hook_event_name") == "beforeShellExecution":
-            return ("Bash", {k: v for k, v in (("command", ev.get("command")), ("cwd", ev.get("cwd"))) if v}), session
+            # cwd can come empty: then the open project, so `rm -rf build` is measured where it would run, not in the hook's folder
+            cwd = ev.get("cwd") or next(iter(ev.get("workspace_roots") or []), None)
+            if isinstance(cwd, str) and re.match(r"^/[A-Za-z]:[/\\]", cwd):   # Windows roots come as /e:/project
+                cwd = cwd[1:]
+            return ("Bash", {k: v for k, v in (("command", ev.get("command")), ("cwd", cwd)) if v}), session
         if ev.get("hook_event_name") == "beforeReadFile":
             return ("Read", {"file_path": ev.get("file_path")}), session
         return normalize(str(ev.get("tool_name", "unknown")), ev.get("tool_input")), session

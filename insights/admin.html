@@ -419,6 +419,23 @@ function healthBadge(p) {
 }
 const savedText = (s) => Object.entries(s || {}).map(([k, v]) => `${Number(v).toLocaleString()} ${v === 1 ? k.replace(/s$/, "") : k}`).join(", ");
 const fmtSecs = (s) => s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s / 60)} min` : `${Math.round(s / 3600)} h`;
+// What the action would have done. Sizes when the hook measured them (rows, files, commits); otherwise the kind of damage,
+// from the program alone (we never get its arguments), e.g. an `rm` of a file that wasn't there
+const DAMAGE = [[/^(rm|rmdir|rd|del|erase|remove-item|ri|rimraf|shred|unlink)$/, "Files deleted for good"],
+  [/^git$/, "Git history rewritten or work lost"], [/^(psql|mysql|mariadb|sqlite3|mongosh?|redis-cli)$/, "Database data changed or dropped"],
+  [/^(terraform|tofu|pulumi|cdk)$/, "Cloud infrastructure changed or destroyed"], [/^(aws|gcloud|gsutil|az)$/, "Cloud resources changed or deleted"],
+  [/^(kubectl|helm)$/, "A live cluster changed"], [/^(docker|podman)$/, "Containers, images or volumes removed"],
+  [/^(dd|mkfs.*|diskpart|format)$/, "A disk overwritten"], [/^(curl|wget|iwr|irm)$/, "Code from the internet run unread"]];
+const KIND_DAMAGE = { catastrophic: "A home folder, a drive or the system wiped", irreversible: "A change that can't be undone",
+  hidden: "Code run that nobody read first" };
+function consequence(x) {
+  const sized = savedText(x.saved);
+  if (sized) return `<b>${esc(sized)}</b>`;
+  const hit = DAMAGE.find(([re]) => re.test(x.program || ""));
+  const text = hit ? hit[1] : KIND_DAMAGE[x.category] || "";
+  return text ? `${esc(text)}<div class="mini">size not measured</div>` : '<span class="mini">–</span>';
+}
+
 // Every pilot's held or blocked actions in one list, newest first: what the agent tried, why it stopped, what it would have changed
 const STOPPED = ["rejected", "blocked"];
 function stoppedPanel(pilots) {
@@ -433,13 +450,13 @@ function stoppedPanel(pilots) {
     <td>${x.program ? `<code>${esc(x.program)}</code>${x.category ? `<div class="mini">${esc(x.category)}</div>` : ""}` : `<code>${esc(x.tool || "")}</code>`}</td>
     <td>${esc(x.why || "")}<div class="mini">${esc(x.rule || "")}</div></td>
     <td class="${OUTCOME[x.outcome] || ""}" style="font-weight:500">${esc(x.outcome || "")}${x.decide_s !== undefined && x.decide_s !== null ? `<div class="mini">in ${fmtSecs(x.decide_s)}</div>` : ""}</td>
-    <td>${esc(savedText(x.saved)) || '<span class="mini">–</span>'}</td></tr>`).join("");
+    <td>${consequence(x)}</td></tr>`).join("");
   const sub = stopped.length ? `${stopped.length} stopped${savedText(saved) ? " · would have changed " + savedText(saved) : ""}` : "Rejected or blocked actions, from every pilot";
   return `<section id="stopped"><div class="sec-h"><h2>Stopped</h2><span class="sub">${esc(sub)}</span>
       ${all.length > stopped.length ? `<div class="act"><label class="sub"><input type="checkbox" id="allholds"> Show approved and waiting holds too (${all.length - stopped.length})</label></div>` : ""}</div>
-    ${all.length ? `<div class="table-wrap"><table><thead><tr><th>When</th><th>Company</th><th>Action</th><th>Why it stopped</th><th>Outcome</th><th>Would have changed</th></tr></thead>
+    ${all.length ? `<div class="table-wrap"><table><thead><tr><th>When</th><th>Company</th><th>Action</th><th>Why it stopped</th><th>Outcome</th><th>What it would have done</th></tr></thead>
       <tbody>${rows}</tbody></table>${stopped.length ? "" : `<div class="empty stopped-none">Nothing rejected or blocked yet.</div>`}</div>
-      <p class="foot" style="margin-top:8px">The program only, never its arguments, files or prompts. "Would have changed" is counted on their machine before the action runs.</p>`
+      <p class="foot" style="margin-top:8px">The program only, never its arguments, files or prompts. Sizes in bold were measured on their machine before the action ran (files, rows, commits); otherwise the kind of damage, from the program.</p>`
       : `<div class="surface empty">Nothing held or blocked yet. Shows up here within 2 minutes of a block or a no.</div>`}
   </section>`;
 }
@@ -450,7 +467,7 @@ function catchRow(x) {
   return `<tr><td class="sub" style="white-space:nowrap">${esc(x.t.replace("T", " "))}</td><td>${esc(x.agent || "")}</td><td>${action}</td>
     <td>${esc(x.why || "")}<div class="mini">${esc(x.rule || "")}</div></td>
     <td class="${OUTCOME[x.outcome] || ""}" style="font-weight:500">${esc(x.outcome || "")}</td>
-    <td>${esc(savedText(x.saved)) || '<span class="mini">–</span>'}</td><td class="mini">${x.decide_s !== undefined ? fmtSecs(x.decide_s) : "–"}</td></tr>`;
+    <td>${consequence(x)}</td><td class="mini">${x.decide_s !== undefined ? fmtSecs(x.decide_s) : "–"}</td></tr>`;
 }
 
 // Deleting a hosted pilot switches its dashboard off, and Squidbrake fails closed: their agents stop until they remove it
