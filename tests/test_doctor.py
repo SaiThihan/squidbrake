@@ -157,3 +157,18 @@ def test_reads_cursors_own_hooks_log(tmp_path, monkeypatch):
         "[t] Loaded 2 user hook(s) for steps: beforeShellExecution\n[t] Hook step requested: beforeShellExecution\n",
         encoding="utf-8")
     assert connect._cursor_hooks_log()["ran"] is True
+
+
+def test_unused_agents_are_fine_when_another_one_works(home, capsys, monkeypatch):
+    tmp, _ = home
+    connect_cursor(tmp)
+    (tmp / ".codex").mkdir()
+    connect.main(["agents", "--agent", "codex", "--url", URL, "--key", KEY, "--yes"])
+    monkeypatch.setattr(connect, "_run_hook", lambda cmd, ev: (True, ""))
+    monkeypatch.setattr(connect, "codex_hook_trust", lambda: "trusted")
+    time.sleep(0.01)
+    hooklog.record("cursor", "beforeShellExecution")
+    assert run() == 0
+    out = capsys.readouterr().out
+    assert "[OK] cursor: connected, and it used the hook" in out
+    assert "[-] codex: connected, not used yet (fine if you don't use codex)" in out and "Everything works." in out

@@ -705,7 +705,8 @@ def doctor(args) -> int:
 
     import httpx
     import hooklog
-    bad = warn = 0
+    bad = warn = used = 0
+    unused: list[tuple[str, str, str, list[str]]] = []
 
     def say(mark, text, fix=None):
         nonlocal bad, warn
@@ -795,14 +796,15 @@ def doctor(args) -> int:
         since = datetime_from_mtime(f)
         if last and last >= since - timedelta(seconds=2):   # timestamps and file times differ slightly
             say("OK", f"{name}: connected, and it used the hook {ago(last)}")
+            used += 1
         elif args.quick:
             say("OK", f"{name}: connected; the hook works", RESTART.get(name, f"restart {name}") + ", then use it as usual")
         elif name == "cursor" and (log := _cursor_hooks_log())["loaded"]:
             # Cursor says it loaded the hook: it just hasn't had a terminal command or file read to check yet
-            say("!", f"cursor: connected, and Cursor has loaded the hook ({log['loaded']}), but its agent hasn't "
-                     "run a terminal command since",
-                "in Cursor's Agent chat (Ctrl+I / Cmd+I), type: Run git status in the terminal. Commands you type into "
-                "the terminal yourself aren't sent to the hook. Then run: squidbrake doctor")
+            unused.append((name, f"cursor: connected, and Cursor has loaded the hook ({log['loaded']}), but its agent "
+                                 "hasn't run a terminal command since",
+                           "in Cursor's Agent chat (Ctrl+I / Cmd+I), type: Run git status in the terminal. Commands you "
+                           "type into the terminal yourself aren't sent to the hook. Then run: squidbrake doctor", []))
         else:
             extra, log = "", (_cursor_hooks_log() if name == "cursor" else None)
             if name == "cursor":
@@ -810,11 +812,17 @@ def doctor(args) -> int:
                 extra = f" (Cursor {v})" if v else ""
                 if log["loaded"] == "":
                     extra += "; Cursor's log says it loaded no user hooks"
-            say("!", f"{name}: connected and the hook works, but {name} hasn't run it since it was connected{extra}",
-                RESTART.get(name, f"restart {name}") + ", then ask its agent (in its chat, not by typing in the terminal "
-                "yourself) to run a terminal command, like: Run git status in the terminal. Then run: squidbrake doctor")
-            for line in (log or {}).get("errors", []):
-                print(f"       Cursor's hooks log: {line}")
+            unused.append((name, f"{name}: connected and the hook works, but {name} hasn't run it since it was connected{extra}",
+                           RESTART.get(name, f"restart {name}") + ", then ask its agent (in its chat, not by typing in "
+                           "the terminal yourself) to run a terminal command, like: Run git status in the terminal. "
+                           "Then run: squidbrake doctor", (log or {}).get("errors", [])))
+    for name, text, fix, errors in unused:
+        if used:   # another agent already works through it: one you don't open isn't a problem
+            print(f"  [-] {name}: connected, not used yet (fine if you don't use {name})")
+            continue
+        say("!", text, fix)
+        for line in errors:
+            print(f"       Cursor's hooks log: {line}")
     print()
     if bad:
         print("Fix the [X] lines above, then run: squidbrake doctor\n")
