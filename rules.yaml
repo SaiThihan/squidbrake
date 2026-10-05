@@ -44,7 +44,8 @@ shadow_agents: []          # shadow mode for just these agents (source or key na
 history_checks:
   company_domains: [acme.com]          # your real email domains; look-alikes (acrne.com, acme-corp.com) are suspicious
   lookback_hours: 24
-  repeat_of_rejected: block            # an action a person already rejected (same tool + same target) is blocked, with their note
+  repeat_of_rejected: review           # an action a person already rejected (same tool + same target) goes back to a
+                                       # person, flagged with their earlier no and note (block: refuse it outright)
   impersonation: block                 # moving money right after reading a message from a look-alike of your domain
   payment_request_in_message: review   # moving money right after reading a message that asks for a payment
   duplicate_change: warn               # the same change on the same thing again (e.g. a 2nd refund on one charge)

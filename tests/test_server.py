@@ -1179,9 +1179,19 @@ def test_history_duplicate_and_repeat_of_rejected(c, org, history_on):
     assert not any(x["check"] == "repeat_of_rejected" for x in other_bot["signals"] or [])   # a no is for that agent
     if other_bot["decision"] == "review":
         c.post(f"/v1/events/{other_bot['event_id']}/reject", headers=org["admin"])
+    # asking again goes back to a person (they may have changed their mind), with their earlier no and note
     third = c.post("/v1/events", headers=org["agent"], json={"name": "payments.refund", "input": {"charge_id": charge, "amount": 20}}).json()
-    assert third["decision"] == "deny" and third["rule_id"] == "history:repeat_of_rejected"
-    assert "already refunded once" in third["reason"]
+    assert third["decision"] == "review"
+    sig = next(x for x in third["signals"] if x["check"] == "repeat_of_rejected")
+    assert "already refunded once" in sig["message"] and "Asking again" in sig["message"]
+    c.post(f"/v1/events/{third['event_id']}/reject", headers=org["admin"], json={"note": "already refunded once"})
+    # repeat_of_rejected: block refuses it outright
+    RULES.write_text(RULES.read_text().replace("history_checks: { company_domains: [acme.com] }",
+                                               "history_checks: { company_domains: [acme.com], repeat_of_rejected: block }"))
+    os.utime(RULES, (time.time(), time.time() + 110))
+    fourth = c.post("/v1/events", headers=org["agent"], json={"name": "payments.refund", "input": {"charge_id": charge, "amount": 20}}).json()
+    assert fourth["decision"] == "deny" and fourth["rule_id"] == "history:repeat_of_rejected"
+    assert "already refunded once" in fourth["reason"] and "Don't retry" in fourth["reason"]
     # the agent can look up what people decided about its requests
     mine = c.get("/v1/agent/decisions", headers=org["agent"]).json()["decisions"]
     assert any(x["note"] == "already refunded once" and x["outcome"] == "rejected" for x in mine)

@@ -589,7 +589,7 @@ HISTORY_DEFAULTS = {
     "company_domains": [],
     "lookback_hours": 24,
     "money_tools": ["*refund*", "*transfer*", "*wire*", "*payout*", "*send_money*", "*payment_create*"],
-    "repeat_of_rejected": "block",          # the same action (same tool + same target) a person already rejected
+    "repeat_of_rejected": "review",         # the same action (same tool + same target) a person already rejected
     "impersonation": "block",               # moving money right after reading a message from a look-alike domain
     "payment_request_in_message": "review", # moving money right after reading a message that asks for a payment
     "duplicate_change": "review",           # the same change on the same target again (e.g. a 2nd refund)
@@ -992,8 +992,10 @@ def history_signals(conn, name: str, input: Any, stored_input: str | None, sourc
             prev_target = _target(json.loads(r.input)) if r.input else None
             if r.input == stored_input or (target and prev_target and prev_target[1].lower() == target[1].lower()):
                 note = f': "{r.decision_note}"' if r.decision_note else ""
-                add("repeat_of_rejected", f"{r.decided_by} already rejected this {_ago(r.decided_at or r.created_at)}{note}. "
-                                          "Don't retry it; ask the person what to do instead.", r.id)
+                then = f"{r.decided_by} already rejected this {_ago(r.decided_at or r.created_at)}{note}"
+                add("repeat_of_rejected", then + (". Don't retry it; ask the person what to do instead."
+                                                  if hc["repeat_of_rejected"] == "block" else
+                                                  ". Asking again, in case they've changed their mind."), r.id)
                 break
 
     # 2 + 3. Money moving right after reading a message: who asked for it?
