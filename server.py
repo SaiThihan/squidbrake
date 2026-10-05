@@ -62,6 +62,7 @@ import commands
 import evidence
 import lockdown
 import pilot
+import risk
 import taint
 import verify
 
@@ -430,6 +431,8 @@ events = Table(
     Column("decision_note", Text),
     Column("signals", Text),                        # JSON list of history-check findings (see history_signals)
     Column("would", String(10)),                    # shadow mode: what would have happened (deny | review), then allowed
+    Column("risk", Integer),                        # risk.py's 0..100 score: recorded, never used to decide
+    Column("risk_why", Text),                       # JSON list of what made the score
 )
 
 # Small key/value store for state all workers share: the emergency stop and notification settings.
@@ -857,6 +860,7 @@ class Decision(BaseModel):
     decision_note: str | None = None
     signals: list[dict] | None = None  # history-check findings, e.g. possible impersonation
     would: str | None = None           # shadow mode: deny | review that was let through
+    risk: int | None = None            # risk.py's score, 0..100: measured only, never part of the decision
 
 
 class ApprovalIn(BaseModel):
@@ -1256,6 +1260,12 @@ def record_event(ev: EventIn, client: str, client_ip: str | None) -> Decision:
                     "command:read_only"
     if effect := reported_effects(ev.metadata):
         signals.append({"check": "effect", "effect": "info", "message": effect})
+    try:   # shadow risk score: measured next to the decision, never changes it
+        shell = any(fnmatch.fnmatchcase(ev.name.lower(), t.lower()) for t in policy.commands["tools"])
+        risk_score, risk_why = risk.score(ev.name, ev.input, signals, ev.metadata, shell=shell)
+    except Exception:
+        log.exception("risk score failed")
+        risk_score, risk_why = None, []
     would = None
     # Shadow mode lets it through but records what would have happened. Stops and catastrophic commands still apply.
     if decision in ("deny", "review") and rule_id not in ("emergency-stop", "session-stop", "command:catastrophic_command")             and policy.shadow_for(ev.source, client):
@@ -1294,6 +1304,7 @@ def record_event(ev: EventIn, client: str, client_ip: str | None) -> Decision:
         "approvers": json.dumps(rule["approvers"]) if deadline and rule["approvers"] else None,
         "signals": json.dumps(signals) if signals else None,
         "would": would,
+        "risk": risk_score, "risk_why": json.dumps(risk_why) if risk_why else None,
     }
     with audited_tx() as conn:
         record_policy_version(conn)
@@ -1307,7 +1318,7 @@ def record_event(ev: EventIn, client: str, client_ip: str | None) -> Decision:
     if status == "awaiting_approval":
         notify_approval_needed(row)
     return Decision(event_id=row["id"], decision=decision, reason=reason, rule_id=rule_id,
-                    status=status, approval_deadline=deadline, signals=signals or None, would=would)
+                    status=status, approval_deadline=deadline, signals=signals or None, would=would, risk=risk_score)
 
 
 # --------------------------------------------------------------------------- notifications + approval links
