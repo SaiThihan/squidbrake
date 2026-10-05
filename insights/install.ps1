@@ -37,9 +37,18 @@ try {
             & $vpy -m pip install --quiet --disable-pip-version-check --upgrade squidbrake
             $exe = Join-Path $app "Scripts\squidbrake.exe"
             if (Works $exe) {
-                # a small launcher in a folder on PATH, so the venv's python.exe never shadows anyone's Python
-                Set-Content -Path (Join-Path $bin "squidbrake.cmd") -Value "@`"$exe`" %*" -Encoding ascii
-                $sb = $exe
+                # Copy the launcher (it knows its own Python) into a folder on PATH, so the venv's python.exe never
+                # shadows anyone's Python. Replace any older squidbrake.exe there (an earlier pipx install), or Windows
+                # would keep running that one: it looks for .exe before .cmd.
+                $dest = Join-Path $bin "squidbrake.exe"
+                try { Copy-Item $exe $dest -Force -ErrorAction Stop }
+                catch {   # in use: move the old one aside, then copy
+                    Move-Item $dest (Join-Path $bin "squidbrake.old-$(Get-Date -Format yyyyMMddHHmmss).exe") -Force -ErrorAction SilentlyContinue
+                    Copy-Item $exe $dest -Force -ErrorAction SilentlyContinue
+                }
+                $shim = Join-Path $bin "squidbrake.cmd"   # from 0.6.3-0.6.4 installers; the .exe replaces it
+                if (Test-Path $shim) { Move-Item $shim "$shim.old" -Force -ErrorAction SilentlyContinue }
+                if (Works $dest) { $sb = $dest }
             }
         }
         if (-not $sb) { Write-Host "That Python couldn't make a virtual environment; trying uv instead." }
