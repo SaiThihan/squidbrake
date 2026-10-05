@@ -160,7 +160,7 @@ async function load() {
   if (!key) return login();
   let d, me, asks, inv;
   try { [d, me, asks, inv] = await Promise.all([api("/v1/admin/overview"), api("/v1/admin/me"), api("/v1/admin/team-requests"),
-                                                api("/v1/admin/investor")]); }
+                                                api("/v1/admin/traction")]); }
   catch (e) { if (e.message !== "unauthorized") app.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
   const w = d.week;
   app.innerHTML = `
@@ -183,7 +183,7 @@ async function load() {
       </div>
       <div class="sub" style="padding:0 16px 14px">${d.pilots.length} pilots · ${d.installs} installs · ${w.events.toLocaleString()} actions this week${w.would_block ? ` · ${w.would_block} would block (shadow)` : ""}</div>
     </section>
-    ${investorPanel(inv)}
+    ${tractionPanel(inv)}
     ${teamPanel(asks)}
     <section class="panel"><h2>New pilot</h2>
       <form class="new" id="nf"><input id="nc" placeholder="Company (e.g. Acme)" required maxlength="80">
@@ -225,9 +225,9 @@ async function load() {
   });
 }
 
-// What a pre-seed investor asks: activation, retention, value, revenue, and open-source pull
+// Traction: activation, retention, value, revenue, and open-source pull
 const pct = (v) => v === null || v === undefined ? "–" : `${v > 0 ? "+" : ""}${v}%`;
-function investorPanel(v) {
+function tractionPanel(v) {
   if (!v) return "";
   const top = v.funnel[0].count || 0;
   const funnel = v.funnel.map((f, i) => `<div class="fstep"><div class="k">${esc(f.step)}</div><div class="v">${f.count}</div>
@@ -236,7 +236,7 @@ function investorPanel(v) {
   const bars = `<div class="wbars" title="Active pilots per week, last 8 weeks">${v.weeks.map((w) =>
     `<div><i style="height:${Math.max(2, 48 * w.active_pilots / maxA)}px"></i><span>${w.active_pilots}</span></div>`).join("")}</div>`;
   const o = v.oss || {};
-  return `<section class="panel"><h2>Investor metrics <button class="btn" style="margin-left:auto" data-copy="${esc(investorUpdate(v))}">Copy investor update</button></h2>
+  return `<section class="panel"><h2>Traction <button class="btn" style="margin-left:auto" data-copy="${esc(tractionUpdate(v))}">Copy update</button></h2>
     <div class="funnel">${funnel}</div>
     <div class="cards" style="padding:4px 16px 0">
       ${cardText("MRR / ARR", `$${v.mrr.toLocaleString()} / $${v.arr.toLocaleString()}`, v.paying.length ? v.paying.map((p) => `${p.company} $${p.mrr}`).join(", ") : "Mark a pilot as paying with its $ button")}
@@ -254,7 +254,7 @@ function investorPanel(v) {
   </section>`;
 }
 
-function investorUpdate(v) {
+function tractionUpdate(v) {
   const f = Object.fromEntries(v.funnel.map((x) => [x.step, x.count])), o = v.oss || {}, w = v.weeks.at(-1);
   return [`Squidbrake update, week to ${w.week_ending}`,
     `Revenue: $${v.mrr.toLocaleString()} MRR ($${v.arr.toLocaleString()} ARR), ${v.paying.length} paying`,
@@ -288,7 +288,7 @@ function teamPanel(asks) {
 const card = (k, v) => `<div class="card"><div class="k">${k}</div><div class="v">${Number(v || 0).toLocaleString()}</div></div>`;
 const cardText = (k, v, warn = "") => `<div class="card"${warn ? ` title="${esc(warn)}" style="border-color:var(--warn)"` : ""}><div class="k">${k}</div><div class="v">${esc(v)}</div>${warn ? `<div class="mini">${esc(warn)}</div>` : ""}</div>`;
 
-// What to send a cofounder or an investor every week: usage, not output
+// What to send a cofounder every week: usage, not output
 function weeklyReport(d) {
   const s = d.scorecard, w = d.week, day = new Date().toISOString().slice(0, 10);
   const lines = [`Squidbrake pilots, week to ${day}`,

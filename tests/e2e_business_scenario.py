@@ -67,7 +67,11 @@ try:
             r = await c.call_tool("acme_check_approval", {"event_id": eid2})
             results.append(ok(r.is_error and "do not refund twice" in text(r), "the rejection and its note reach the agent"))
             r = await c.call_tool("payments_refund", {"charge_id": "ch_1002", "amount": 49.0, "reason": "trying again"})
-            results.append(ok(r.is_error and "history:repeat_of_rejected" in text(r), "retrying a rejected action is blocked automatically"))
+            ev3 = httpx.get(f"{URL}/v1/events/{eid_of(r)}", headers=A).json()
+            again = next((s for s in ev3.get("signals") or [] if s["check"] == "repeat_of_rejected"), None)
+            results.append(ok("WAITING FOR HUMAN APPROVAL" in text(r) and again and "do not refund twice" in again["message"],
+                              "retrying a rejected action goes back to a person, with their earlier no and note"))
+            httpx.post(f"{URL}/v1/events/{eid_of(r)}/reject", headers=A, json={"note": "still no"})
             r = await c.call_tool("acme_recent_decisions", {})
             results.append(ok("do not refund twice" in text(r) and "approved" in text(r), "the agent can look up past decisions and notes"))
 

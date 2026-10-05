@@ -268,7 +268,7 @@ def test_insights_keeps_only_known_catch_fields_and_shows_churn(insights, tmp_pa
     assert d["scorecard"]["stopped"] >= 1 and d["scorecard"]["saved"].get("commits", 0) >= 3
 
 
-def test_investor_metrics(insights, tmp_path, monkeypatch):
+def test_traction_metrics(insights, tmp_path, monkeypatch):
     import app as insights_app
     admin = {"X-Admin-Key": "admin-test-key"}
 
@@ -292,7 +292,7 @@ def test_investor_metrics(insights, tmp_path, monkeypatch):
                                               "outcome": "rejected", "decide_s": 30, "saved": {"files": 12}}]}) is True
     assert insights.post(f"/v1/admin/pilots/{code}/revenue", json={"mrr": 99}).status_code == 401
     assert insights.post(f"/v1/admin/pilots/{code}/revenue", headers=admin, json={"mrr": 99}).json() == {"ok": True}
-    v = insights.get("/v1/admin/investor", headers=admin).json()
+    v = insights.get("/v1/admin/traction", headers=admin).json()
     steps = {f["step"]: f["count"] for f in v["funnel"]}
     assert steps["Pilots created"] >= 1 and steps["First action"] >= 1 and steps["Active 3+ days this week"] >= 1
     assert steps["Paying"] >= 1 and v["mrr"] >= 99 and v["arr"] == v["mrr"] * 12
@@ -302,4 +302,4 @@ def test_investor_metrics(insights, tmp_path, monkeypatch):
     assert v["oss"]["stars"] == 42 and v["oss"]["forks"] == 7 and v["oss"]["contributors"] == 12
     assert v["oss"]["downloads_last_week"] == 1355
     insights.post(f"/v1/admin/pilots/{code}/revenue", headers=admin, json={"mrr": 0})
-    assert not any(p["company"] == "Investable" for p in insights.get("/v1/admin/investor", headers=admin).json()["paying"])
+    assert not any(p["company"] == "Investable" for p in insights.get("/v1/admin/traction", headers=admin).json()["paying"])

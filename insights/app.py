@@ -484,7 +484,7 @@ def overview(request: Request):
 
 
 def scorecard(pilots: list[dict], week: dict) -> dict:
-    """The numbers that say whether pilots use it, week over week: what an investor (or a kill criterion) asks for."""
+    """The numbers that say whether pilots use it, week over week, week over week."""
     last_week = [p for p in pilots if p["days_last_week"]]
     decided = week["approved"] + week["rejected"]
     return {
@@ -504,8 +504,8 @@ def scorecard(pilots: list[dict], week: dict) -> dict:
     }
 
 
-# --------------------------------------------------------------------------- investor metrics
-# What a pre-seed investor asks: does anyone activate, come back, get value, pay; and is the open source growing.
+# --------------------------------------------------------------------------- traction
+# Does anyone activate, come back, get value and pay; and is the open source growing.
 
 class RevenueIn(BaseModel):
     mrr: int = Field(ge=0, le=1_000_000)       # dollars a month; 0 = not paying
@@ -568,8 +568,8 @@ def _pct(a, b):
     return None if not b else round(100 * (a - b) / b)
 
 
-@app.get("/v1/admin/investor", dependencies=[Depends(admin)])
-def investor():
+@app.get("/v1/admin/traction", dependencies=[Depends(admin)])
+def traction():
     today = datetime.now(timezone.utc).date()
     with db() as c:
         pilots = [dict(r) for r in c.execute(
