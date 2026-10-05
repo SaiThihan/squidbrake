@@ -7,7 +7,7 @@
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](requirements.txt)
 [![MCP](https://img.shields.io/badge/MCP-compatible-8A2BE2.svg)](#2-connect-real-agents)
-[![Real incidents replayed: 12 of 13 stopped](https://img.shields.io/badge/real%20incidents%20replayed-11%20of%2012%20stopped-yellow.svg)](incidents/)
+[![Real incidents replayed: 12 of 13 stopped](https://img.shields.io/badge/real%20incidents%20replayed-12%20of%2013%20stopped-yellow.svg)](incidents/)
 [![Good first issues](https://img.shields.io/github/issues/batrapulkit/squidbrake/good%20first%20issue?label=good%20first%20issues&color=7057ff)](https://github.com/batrapulkit/squidbrake/labels/good%20first%20issue)
 
 ![Demo: an AI agent's scam wire is blocked, a refund waits for approval and is approved from a phone](https://raw.githubusercontent.com/batrapulkit/squidbrake/main/docs/demo.gif)
