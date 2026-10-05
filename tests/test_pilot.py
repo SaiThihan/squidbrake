@@ -266,3 +266,40 @@ def test_insights_keeps_only_known_catch_fields_and_shows_churn(insights, tmp_pa
     assert p["stopped"] == 1 and p["saved"] == {"commits": 3} and p["decide_median_s"] == 42
     assert p["health"] == "active" and p["idle_days"] == 0
     assert d["scorecard"]["stopped"] >= 1 and d["scorecard"]["saved"].get("commits", 0) >= 3
+
+
+def test_investor_metrics(insights, tmp_path, monkeypatch):
+    import app as insights_app
+    admin = {"X-Admin-Key": "admin-test-key"}
+
+    class H(dict):
+        def get(self, k, d=None): return '<https://x?page=12>; rel="last"' if k == "Link" else d
+    monkeypatch.setattr(insights_app, "_fetch_json", lambda url: (
+        {"stargazers_count": 42, "forks_count": 7} if url.endswith("/squidbrake") else
+        {"data": {"last_week": 1355}} if "pypistats" in url else [], H()))
+    with insights_app.db() as c:
+        c.execute("DELETE FROM settings WHERE key='oss_cache'")
+    code = insights.post("/v1/admin/pilots", headers=admin, json={"company": "Investable"}).json()["code"]
+    insights.get(f"/start/{code}")
+    path_of = lambda url: "/" + url.split("://", 1)[1].split("/", 1)[1]
+    monkeypatch.setattr(pilot.httpx, "post", lambda url, json, timeout: insights.post(path_of(url), json=json))
+    assert pilot.join(tmp_path, code, "http://localhost", True, "1.0") == 0
+    from datetime import datetime, timedelta, timezone
+    d = lambda n: (datetime.now(timezone.utc) - timedelta(days=n)).strftime("%Y-%m-%d")
+    assert pilot.send(tmp_path, {"version": "1.0", "agents": {"cursor": 3, "codex": 1}, "rules_hit": {}, "total_events": 9,
+                                 "days": {d(0): {"events": 4}, d(1): {"events": 2}, d(2): {"events": 1}, d(8): {"events": 2}},
+                                 "catches": [{"t": d(0) + "T09:00", "agent": "cursor", "program": "rm", "rule": "r",
+                                              "outcome": "rejected", "decide_s": 30, "saved": {"files": 12}}]}) is True
+    assert insights.post(f"/v1/admin/pilots/{code}/revenue", json={"mrr": 99}).status_code == 401
+    assert insights.post(f"/v1/admin/pilots/{code}/revenue", headers=admin, json={"mrr": 99}).json() == {"ok": True}
+    v = insights.get("/v1/admin/investor", headers=admin).json()
+    steps = {f["step"]: f["count"] for f in v["funnel"]}
+    assert steps["Pilots created"] >= 1 and steps["First action"] >= 1 and steps["Active 3+ days this week"] >= 1
+    assert steps["Paying"] >= 1 and v["mrr"] >= 99 and v["arr"] == v["mrr"] * 12
+    assert any(p["company"] == "Investable" and p["mrr"] == 99 and p["since"] for p in v["paying"])
+    assert len(v["weeks"]) == 8 and v["weeks"][-1]["active_pilots"] >= 1 and v["retention_w1"] is not None
+    assert v["stopped_this_week"] >= 1 and v["saved_this_week"].get("files", 0) >= 12
+    assert v["oss"]["stars"] == 42 and v["oss"]["forks"] == 7 and v["oss"]["contributors"] == 12
+    assert v["oss"]["downloads_last_week"] == 1355
+    insights.post(f"/v1/admin/pilots/{code}/revenue", headers=admin, json={"mrr": 0})
+    assert not any(p["company"] == "Investable" for p in insights.get("/v1/admin/investor", headers=admin).json()["paying"])

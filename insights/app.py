@@ -68,7 +68,8 @@ with db() as _c:
     # hosted pilots: their own gateway at <subdomain>.<HOSTED_DOMAIN>, started by provision.py on the server
     _have = {r[1] for r in _c.execute("PRAGMA table_info(pilots)")}
     for _col, _type in (("hosted", "INTEGER NOT NULL DEFAULT 0"), ("subdomain", "TEXT"), ("state", "TEXT"),
-                        ("admin_key", "TEXT"), ("agent_key", "TEXT"), ("keys_revealed_at", "TEXT"), ("error", "TEXT")):
+                        ("admin_key", "TEXT"), ("agent_key", "TEXT"), ("keys_revealed_at", "TEXT"), ("error", "TEXT"),
+                        ("mrr", "INTEGER NOT NULL DEFAULT 0"), ("paying_since", "TEXT")):
         if _col not in _have:
             _c.execute(f"ALTER TABLE pilots ADD COLUMN {_col} {_type}")
 
@@ -500,6 +501,146 @@ def scorecard(pilots: list[dict], week: dict) -> dict:
         "stopped": sum(p.get("stopped", 0) for p in pilots),
         "saved": {k: sum((p.get("saved") or {}).get(k, 0) for p in pilots)
                   for k in sorted({k for p in pilots for k in (p.get("saved") or {})})},
+    }
+
+
+# --------------------------------------------------------------------------- investor metrics
+# What a pre-seed investor asks: does anyone activate, come back, get value, pay; and is the open source growing.
+
+class RevenueIn(BaseModel):
+    mrr: int = Field(ge=0, le=1_000_000)       # dollars a month; 0 = not paying
+
+
+@app.post("/v1/admin/pilots/{code}/revenue", dependencies=[Depends(admin)])
+def set_revenue(code: str, r: RevenueIn):
+    with _lock, db() as c:
+        if not c.execute("SELECT 1 FROM pilots WHERE code=?", (code,)).fetchone():
+            raise HTTPException(404)
+        c.execute("UPDATE pilots SET mrr=?, paying_since=CASE WHEN ?>0 THEN COALESCE(paying_since, ?) END WHERE code=?",
+                  (r.mrr, r.mrr, now(), code))
+    return {"ok": True}
+
+
+OSS_REPO = os.getenv("OSS_REPO", "batrapulkit/squidbrake")
+OSS_PACKAGE = os.getenv("OSS_PACKAGE", "squidbrake")
+
+
+def _fetch_json(url: str):
+    import urllib.request
+    req = urllib.request.Request(url, headers={"User-Agent": "squidbrake-insights"})
+    with urllib.request.urlopen(req, timeout=8) as r:
+        return json.loads(r.read() or b"null"), r.headers
+
+
+def oss_numbers() -> dict:
+    """GitHub stars, forks and contributors, PyPI downloads last week: cached for an hour, kept if a fetch fails."""
+    with db() as c:
+        row = c.execute("SELECT value FROM settings WHERE key='oss_cache'").fetchone()
+    cached = json.loads(row[0]) if row else {}
+    if cached and time.time() - cached.get("at", 0) < 3600:
+        return cached
+    fresh = dict(cached)
+    try:
+        repo, _ = _fetch_json(f"https://api.github.com/repos/{OSS_REPO}")
+        fresh.update(stars=repo.get("stargazers_count"), forks=repo.get("forks_count"))
+        _, h = _fetch_json(f"https://api.github.com/repos/{OSS_REPO}/contributors?per_page=1&anon=1")
+        m = re.search(r'page=(\d+)>; rel="last"', h.get("Link") or "")
+        fresh["contributors"] = int(m.group(1)) if m else 1
+    except Exception:
+        pass
+    try:
+        dl, _ = _fetch_json(f"https://pypistats.org/api/packages/{OSS_PACKAGE}/recent")
+        fresh["downloads_last_week"] = (dl.get("data") or {}).get("last_week")
+    except Exception:
+        pass
+    fresh["at"] = time.time()
+    with _lock, db() as c:
+        c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('oss_cache', ?)", (json.dumps(fresh),))
+    return fresh
+
+
+def _median(xs):
+    xs = sorted(xs)
+    return xs[len(xs) // 2] if xs else None
+
+
+def _pct(a, b):
+    return None if not b else round(100 * (a - b) / b)
+
+
+@app.get("/v1/admin/investor", dependencies=[Depends(admin)])
+def investor():
+    today = datetime.now(timezone.utc).date()
+    with db() as c:
+        pilots = [dict(r) for r in c.execute(
+            "SELECT code, company, created_at, page_views, keys_revealed_at, mrr, paying_since FROM pilots "
+            "WHERE COALESCE(state, '') != 'deleting'")]
+        installs = [dict(r) for r in c.execute("SELECT install_id, code, left_at, agents FROM installs")]
+        days = c.execute("SELECT install_id, day, counts FROM days").fetchall()
+        caught = [json.loads(r[0]) for r in c.execute("SELECT data FROM catches")]
+        asks = [r[0] for r in c.execute("SELECT created_at FROM team_requests")]
+    code_of = {i["install_id"]: i["code"] for i in installs}
+    events_by: dict[str, dict] = {}                 # pilot code -> {day: actions}
+    for iid, day, counts in days:
+        n = json.loads(counts).get("events", 0)
+        if n and iid in code_of:
+            d = events_by.setdefault(code_of[iid], {})
+            d[day] = d.get(day, 0) + n
+    window = lambda w: {(today - timedelta(days=7 * w + i)).isoformat() for i in range(7)}   # w=0: the last 7 days
+    active_in = lambda code, w: any(d in window(w) for d in events_by.get(code, {}))
+    weeks = [{"week_ending": (today - timedelta(days=7 * w)).isoformat(),
+              "active_pilots": sum(1 for p in pilots if active_in(p["code"], w)),
+              "actions": sum(n for p in pilots for d, n in events_by.get(p["code"], {}).items() if d in window(w))}
+             for w in range(7, -1, -1)]
+    this, last = weeks[-1], weeks[-2]
+    # first action after the pilot was created (a gateway can also report days from before it joined)
+    first_action = {}
+    for p in pilots:
+        after = [d for d in events_by.get(p["code"], {}) if d >= p["created_at"][:10]]
+        if after:
+            first_action[p["code"]] = min(after)
+    set_up = {i["code"] for i in installs} | {p["code"] for p in pilots if p["keys_revealed_at"]}
+    days_this_week = {p["code"]: sum(1 for d in events_by.get(p["code"], {}) if d in window(0)) for p in pilots}
+    funnel = [("Pilots created", len(pilots)),
+              ("Opened the link", sum(1 for p in pilots if p["page_views"])),
+              ("Set up (keys or install)", sum(1 for p in pilots if p["code"] in set_up)),
+              ("First action", len(first_action)),
+              ("Active 3+ days this week", sum(1 for v in days_this_week.values() if v >= 3)),
+              ("Paying", sum(1 for p in pilots if (p["mrr"] or 0) > 0))]
+    ttfa = [(datetime.fromisoformat(first_action[p["code"]]).date() - datetime.fromisoformat(p["created_at"]).date()).days
+            for p in pilots if p["code"] in first_action]
+    then4 = [p for p in pilots if active_in(p["code"], 4)]
+    cut = (today - timedelta(days=7)).isoformat()
+    week_caught = [x for x in caught if x.get("t", "") >= cut]
+    stopped = [x for x in week_caught if x.get("outcome") in ("rejected", "blocked")]
+    decided = [x for x in week_caught if x.get("outcome") in ("approved", "rejected")]
+    saved: dict[str, int] = {}
+    for x in stopped:
+        for k, v in (x.get("saved") or {}).items():
+            saved[k] = saved.get(k, 0) + _int(v)
+    active_codes = {p["code"] for p in pilots if active_in(p["code"], 0)}
+    agents_per = [len(json.loads(i["agents"] or "{}")) for i in installs if i["code"] in active_codes and not i["left_at"]]
+    mrr = sum(p["mrr"] or 0 for p in pilots)
+    week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    return {
+        "funnel": [{"step": s, "count": n} for s, n in funnel],
+        "median_days_to_first_action": _median(ttfa),
+        "weeks": weeks,
+        "active_pilots_wow": _pct(this["active_pilots"], last["active_pilots"]),
+        "actions_wow": _pct(this["actions"], last["actions"]),
+        "retention_w1": None if not last["active_pilots"] else round(
+            100 * sum(1 for p in pilots if active_in(p["code"], 1) and active_in(p["code"], 0)) / last["active_pilots"]),
+        "retention_w4": None if not then4 else round(100 * sum(1 for p in then4 if active_in(p["code"], 0)) / len(then4)),
+        "actions_per_active_pilot": round(this["actions"] / this["active_pilots"]) if this["active_pilots"] else 0,
+        "agents_per_active_install": round(sum(agents_per) / len(agents_per), 1) if agents_per else 0,
+        "stopped_this_week": len(stopped), "saved_this_week": saved,
+        "approve_rate": round(100 * sum(1 for x in decided if x["outcome"] == "approved") / len(decided)) if decided else None,
+        "median_seconds_to_decide": _median([x["decide_s"] for x in week_caught if isinstance(x.get("decide_s"), int)]),
+        "mrr": mrr, "arr": mrr * 12,
+        "paying": [{"code": p["code"], "company": p["company"], "mrr": p["mrr"], "since": p["paying_since"]}
+                   for p in pilots if (p["mrr"] or 0) > 0],
+        "inbound_total": len(asks), "inbound_this_week": sum(1 for a in asks if a >= week_ago),
+        "oss": oss_numbers(),
     }
 
 

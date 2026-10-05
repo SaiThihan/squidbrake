@@ -59,6 +59,12 @@ form.new input { border:1px solid var(--line); background:var(--bg); border-radi
   tr.catches summary { cursor: pointer; font-size: 13px; padding: 6px 0 }
   table.inner { width: 100%; margin: 6px 0; font-size: 13px }
   table.inner th, table.inner td { padding: 4px 8px }
+  .funnel { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 16px 6px }
+  .fstep { flex: 1 1 140px; border: 1px solid var(--line, #ddd); border-radius: 8px; padding: 8px 10px }
+  .fstep .k { font-size: 12px; opacity: .75 } .fstep .v { font-size: 22px; font-weight: 700 }
+  .wbars { display: flex; gap: 6px; align-items: flex-end; height: 70px; margin-top: 6px }
+  .wbars div { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 11px }
+  .wbars i { display: block; width: 22px; background: var(--accent, #e2481b); border-radius: 3px 3px 0 0 }
 </style>
 </head>
 <body>
@@ -152,8 +158,9 @@ function message(company, link, hosted) {
 
 async function load() {
   if (!key) return login();
-  let d, me, asks;
-  try { [d, me, asks] = await Promise.all([api("/v1/admin/overview"), api("/v1/admin/me"), api("/v1/admin/team-requests")]); }
+  let d, me, asks, inv;
+  try { [d, me, asks, inv] = await Promise.all([api("/v1/admin/overview"), api("/v1/admin/me"), api("/v1/admin/team-requests"),
+                                                api("/v1/admin/investor")]); }
   catch (e) { if (e.message !== "unauthorized") app.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
   const w = d.week;
   app.innerHTML = `
@@ -176,6 +183,7 @@ async function load() {
       </div>
       <div class="sub" style="padding:0 16px 14px">${d.pilots.length} pilots · ${d.installs} installs · ${w.events.toLocaleString()} actions this week${w.would_block ? ` · ${w.would_block} would block (shadow)` : ""}</div>
     </section>
+    ${investorPanel(inv)}
     ${teamPanel(asks)}
     <section class="panel"><h2>New pilot</h2>
       <form class="new" id="nf"><input id="nc" placeholder="Company (e.g. Acme)" required maxlength="80">
@@ -205,10 +213,57 @@ async function load() {
     await api(`/v1/admin/pilots/${encodeURIComponent(b.dataset.del)}`, { method: "DELETE" }); load();
   });
   document.querySelectorAll("[data-copy]").forEach((b) => b.onclick = () => copy(b.dataset.copy, b));
+  document.querySelectorAll("[data-mrr]").forEach((b) => b.onclick = async () => {
+    const v = prompt(`Monthly revenue from ${b.dataset.name}, in dollars (0 = not paying):`, b.dataset.mrr || "");
+    if (v === null || !/^\d+$/.test(v.trim())) return;
+    await api(`/v1/admin/pilots/${encodeURIComponent(b.dataset.code)}/revenue`, { method: "POST", body: JSON.stringify({ mrr: Number(v.trim()) }) });
+    load();
+  });
   document.querySelectorAll("[data-done]").forEach((b) => b.onclick = async () => {
     await api(`/v1/admin/team-requests/${b.dataset.done}`, { method: "POST", body: JSON.stringify({ done: b.dataset.to === "1" }) });
     load();
   });
+}
+
+// What a pre-seed investor asks: activation, retention, value, revenue, and open-source pull
+const pct = (v) => v === null || v === undefined ? "–" : `${v > 0 ? "+" : ""}${v}%`;
+function investorPanel(v) {
+  if (!v) return "";
+  const top = v.funnel[0].count || 0;
+  const funnel = v.funnel.map((f, i) => `<div class="fstep"><div class="k">${esc(f.step)}</div><div class="v">${f.count}</div>
+    <div class="mini">${i && top ? Math.round(100 * f.count / top) + "% of created" : ""}${i && v.funnel[i - 1].count ? " · " + Math.round(100 * f.count / v.funnel[i - 1].count) + "% of previous" : ""}</div></div>`).join("");
+  const maxA = Math.max(1, ...v.weeks.map((w) => w.active_pilots));
+  const bars = `<div class="wbars" title="Active pilots per week, last 8 weeks">${v.weeks.map((w) =>
+    `<div><i style="height:${Math.max(2, 48 * w.active_pilots / maxA)}px"></i><span>${w.active_pilots}</span></div>`).join("")}</div>`;
+  const o = v.oss || {};
+  return `<section class="panel"><h2>Investor metrics <button class="btn" style="margin-left:auto" data-copy="${esc(investorUpdate(v))}">Copy investor update</button></h2>
+    <div class="funnel">${funnel}</div>
+    <div class="cards" style="padding:4px 16px 0">
+      ${cardText("MRR / ARR", `$${v.mrr.toLocaleString()} / $${v.arr.toLocaleString()}`, v.paying.length ? v.paying.map((p) => `${p.company} $${p.mrr}`).join(", ") : "Mark a pilot as paying with its $ button")}
+      ${cardText("Active pilots this week", `${v.weeks.at(-1).active_pilots} (${pct(v.active_pilots_wow)} WoW)`)}
+      ${cardText("Actions this week", `${v.weeks.at(-1).actions.toLocaleString()} (${pct(v.actions_wow)} WoW)`)}
+      ${cardText("Retention", `W1 ${v.retention_w1 ?? "–"}% · W4 ${v.retention_w4 ?? "–"}%`, "Of pilots active 1 / 4 weeks ago, the share active this week")}
+      ${cardText("Days to first action", v.median_days_to_first_action === null ? "–" : `${v.median_days_to_first_action} (median)`)}
+      ${cardText("Depth", `${v.actions_per_active_pilot} actions / active pilot / wk · ${v.agents_per_active_install} agents`)}
+      ${cardText("Stopped this week", String(v.stopped_this_week), savedText(v.saved_this_week) ? "saved " + savedText(v.saved_this_week) : "")}
+      ${cardText("Holds approved / time to decide", `${v.approve_rate ?? "–"}% · ${v.median_seconds_to_decide === null ? "–" : fmtSecs(v.median_seconds_to_decide)}`)}
+      ${cardText("Inbound (teams asking)", `${v.inbound_this_week} this week · ${v.inbound_total} total`)}
+      ${cardText("Open source", `${o.stars ?? "–"} stars · ${o.forks ?? "–"} forks · ${o.contributors ?? "–"} contributors`, o.downloads_last_week !== undefined && o.downloads_last_week !== null ? `PyPI: ${Number(o.downloads_last_week).toLocaleString()} downloads last week (includes mirrors and CI)` : "")}
+    </div>
+    <div style="padding:0 16px 14px"><div class="mini">Active pilots per week, last 8 weeks</div>${bars}</div>
+  </section>`;
+}
+
+function investorUpdate(v) {
+  const f = Object.fromEntries(v.funnel.map((x) => [x.step, x.count])), o = v.oss || {}, w = v.weeks.at(-1);
+  return [`Squidbrake update, week to ${w.week_ending}`,
+    `Revenue: $${v.mrr.toLocaleString()} MRR ($${v.arr.toLocaleString()} ARR), ${v.paying.length} paying`,
+    `Pilots: ${f["Pilots created"]} created, ${f["First action"]} activated, ${w.active_pilots} active this week (${pct(v.active_pilots_wow)} WoW), ${f["Active 3+ days this week"]} active 3+ days`,
+    `Retention: W1 ${v.retention_w1 ?? "–"}%, W4 ${v.retention_w4 ?? "–"}% · median ${v.median_days_to_first_action ?? "–"} days to first action`,
+    `Usage: ${w.actions.toLocaleString()} agent actions this week (${pct(v.actions_wow)} WoW), ${v.actions_per_active_pilot} per active pilot`,
+    `Value: ${v.stopped_this_week} risky actions stopped this week${savedText(v.saved_this_week) ? " (" + savedText(v.saved_this_week) + " saved)" : ""}, ${v.approve_rate ?? "–"}% of holds approved`,
+    `Inbound: ${v.inbound_this_week} teams asked for help this week (${v.inbound_total} total)`,
+    `Open source: ${o.stars ?? "–"} GitHub stars, ${o.forks ?? "–"} forks, ${o.contributors ?? "–"} contributors`].join("\n");
 }
 
 // Teams that filled in /team (from `connect all`, the dashboard, or a shared link): people who installed on their own
@@ -267,6 +322,7 @@ function row(p) {
     <td>${agents}</td><td>${hits}</td>
     <td>${followUp(p) ? `<button class="btn" data-copy="${esc(followUp(p))}" title="A message for where they are now">Copy follow-up</button>` : ""}
       <button class="btn" data-copy="${esc(p.link)}">Copy link</button>
+      <button class="btn" data-mrr="${p.mrr || ""}" data-code="${esc(p.code)}" data-name="${esc(p.company)}" title="Mark as paying (monthly revenue)">${p.mrr ? "$" + Number(p.mrr).toLocaleString() + "/mo" : "$ Paying?"}</button>
       <button class="icon-btn" title="Delete pilot" data-del="${esc(p.code)}" data-warn="${esc(deleteWarning(p))}">✕</button></td></tr>
     ${p.catches && p.catches.length ? `<tr class="catches"><td colspan="7"><details><summary>What it held or blocked (${p.catches.length})</summary>
       <table class="inner"><thead><tr><th>When</th><th>Agent</th><th>Action</th><th>Why</th><th>Outcome</th><th>Would have changed</th><th>Decided in</th></tr></thead>
