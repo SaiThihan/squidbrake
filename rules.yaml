@@ -180,12 +180,15 @@ rules:
       name: ["sql*", "db*", "*query*"]
       input_regex: '\b(delete\s+from|update\s+\S+\s+set|alter\s+table|insert\s+(or\s+\w+\s+)?into|replace\s+into)\b'
 
+  # Pushing a named feature branch is everyday work (it runs); pushing main, master, a release or production branch,
+  # tags, everything, or the current branch without naming it waits for a person. Force pushes are held by the
+  # command checks whatever the branch.
   - id: approve-git-push
     action: review
-    reason: Pushing code to a remote
+    reason: Pushing to a shared branch (main, master, release, production), tags, or an unnamed branch
     match:
       name: ["bash*", "shell*", "powershell*", "run_command*"]
-      input_regex: 'git\s+push'
+      input_regex: 'git\s+push((\s+-\S+)*(\s+[^\s"&;|-]\S*)?\s*("|&&|;|\|)|[^"&;|]*\s(\S+:)?(main|master|trunk|develop|release\S*|prod|production|HEAD)\b|[^"&;|]*\s--(all|tags|mirror)\b)'
 
   - id: approve-prod-deploys
     action: review

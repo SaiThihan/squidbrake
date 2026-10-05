@@ -356,9 +356,14 @@ def classify(words: list[str], raw: str = "", depth: int = 0) -> tuple[list[Comm
             cmd.kind, cmd.why = "irreversible", f"destroys infrastructure ({' '.join(words[:4])})"
         elif sub[:1] == ["apply"] and ("-auto-approve" in lower or "--auto-approve" in lower):
             cmd.kind, cmd.why = "irreversible", "applies infrastructure changes without a plan review (-auto-approve)"
+        elif sub[:1] == ["apply"]:
+            cmd.kind, cmd.why = "irreversible", f"changes real infrastructure ({' '.join(words[:3])})"
         return [cmd], []
     if prog == "pulumi" and any(w in ("destroy", "rm") for w in lower[1:3]):
         cmd.kind, cmd.why = "irreversible", f"destroys infrastructure ({' '.join(words[:3])})"
+        return [cmd], []
+    if prog == "pulumi" and any(w in ("up", "update") for w in lower[1:2]):
+        cmd.kind, cmd.why = "irreversible", f"changes real infrastructure ({' '.join(words[:2])})"
         return [cmd], []
     if prog in ("kubectl", "oc", "k"):
         sub = [w for w in lower[1:] if not w.startswith("-")][:3]      # may include a flag's value (-n prod)
@@ -376,6 +381,8 @@ def classify(words: list[str], raw: str = "", depth: int = 0) -> tuple[list[Comm
             verbs.append(w)
         if any(DESTRUCTIVE_WORDS.match(v) for v in verbs) or (prog == "aws" and verbs[:2] == ["s3", "rm"]):
             cmd.kind, cmd.why = "irreversible", f"deletes cloud resources ({' '.join(words[:4])})"
+        elif off := BACKUPS_OFF.search(" ".join(lower[1:])):
+            cmd.kind, cmd.why = "irreversible", f"switches off backups or deletion protection ({off.group(0)})"
         return [cmd], []
     if prog in ("docker", "podman", "nerdctl"):
         sub = [w for w in lower[1:] if not w.startswith("-")][:2]
@@ -399,12 +406,19 @@ def classify(words: list[str], raw: str = "", depth: int = 0) -> tuple[list[Comm
         text = " ".join(words[1:])
         if SQL_DESTRUCTIVE.search(text):
             cmd.kind, cmd.why = "irreversible", f"runs destructive SQL ({SQL_DESTRUCTIVE.search(text).group(0)})"
+        elif PRODUCTION.search(text) and (SQL_WRITES.search(text) or "<" in words[1:] or any(
+                w in ("-f", "--file", "-i", "source") or w.startswith("--file=") for w in lower[1:])):
+            cmd.kind, cmd.why = "irreversible", "changes a production database (an SQL file or a write)"
         return [cmd], []
 
     # ---- publishing and machine state
     if (prog in ("npm", "pnpm", "yarn") and "publish" in lower[1:3]) or (prog == "cargo" and "publish" in lower[1:2]) \
             or (prog == "twine" and "upload" in lower[1:2]) or (prog == "gh" and lower[1:3] in (["repo", "delete"],
-                                                                                              ["release", "delete"])):
+                                                                                              ["release", "delete"])) \
+            or (prog == "gh" and lower[1:3] in (["gist", "create"], ["repo", "create"], ["repo", "edit"])
+                and ("--public" in lower or (lower[2] == "create" and lower[1] == "gist" and "-p" in lower)
+                     or "--visibility=public" in lower
+                     or ("--visibility" in lower and "public" in lower))):
         cmd.kind, cmd.why = "irreversible", f"publishes or deletes something public ({' '.join(words[:3])})"
         return [cmd], []
     if prog in ("shutdown", "reboot", "halt", "poweroff", "stop-computer", "restart-computer") \
@@ -428,9 +442,18 @@ def classify(words: list[str], raw: str = "", depth: int = 0) -> tuple[list[Comm
     return [cmd], []
 
 
+BACKUPS_OFF = re.compile(r"--backup-retention-period[ =]0\b|--no-deletion-protection\b|--deletion-protection[ =]false\b|"
+                         r"--no-backup\b|--no-enable-point-in-time-recovery\b|--retention-period[ =]0\b|"
+                         r"put-bucket-versioning\b.*status=suspended")
+PRODUCTION = re.compile(r"\bprod(uction)?\b|\bprod_|_prod\b|\bprd\b", re.I)
+SQL_WRITES = re.compile(r"\b(insert\s+into|update\s+\S+\s+set|alter\s+table|create\s+(table|index)|grant|revoke)\b", re.I)
+
 REGENERABLE = {"node_modules", "dist", "build", "out", ".next", ".nuxt", ".svelte-kit", ".turbo", ".cache", ".parcel-cache",
                "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox", ".venv", "venv", "coverage",
                ".coverage", "htmlcov", "target", ".gradle"}
+
+
+THROWAWAY = re.compile(r"(\.(log|tmp|temp|pyc|pyo|bak|swp|swo|orig|rej)|^\.DS_Store)$", re.I)
 
 
 def _regenerable(target: str) -> bool:
@@ -439,7 +462,10 @@ def _regenerable(target: str) -> bool:
     if not t or t.startswith(("/", "~", "$", "%")) or re.match(r"^[a-z]:", t, re.I) or any(c in t for c in "*?[{"):
         return False
     parts = [p for p in t.split("/") if p not in ("", ".")]
-    return bool(parts) and ".." not in parts and parts[-1].lower() in REGENERABLE
+    if not parts or ".." in parts:
+        return False
+    # build output and caches, and throwaway files: logs, temp files, editor backups, anything under tmp/
+    return parts[-1].lower() in REGENERABLE or bool(THROWAWAY.search(parts[-1])) or parts[0].lower() in ("tmp", "temp")
 
 
 def _deletion(cmd: Command, words: list[str], prog: str) -> Command:

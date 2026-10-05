@@ -694,8 +694,12 @@ def test_shipped_rules_let_coding_work_run_and_hold_the_guard_rails():
 
     for name, inp in [("Edit", {"file_path": "src/app.py"}), ("Write", {"file_path": "src/new.py"}),
                       ("Write", {"file_path": ".env.example"}), ("Bash", {"command": "npm test"}),
-                      ("Bash", {"command": "git commit -m fix"}), ("PowerShell", {"command": "dotnet build"})]:
+                      ("Bash", {"command": "git commit -m fix"}), ("PowerShell", {"command": "dotnet build"}),
+                      ("Bash", {"command": "git push -u origin fix/signup-validation"})]:   # a named feature branch
         assert decide(name, inp) == "allow", (name, inp)
+    for name, inp in [("Bash", {"command": "git push"}), ("Bash", {"command": "git push origin HEAD:master"}),
+                      ("Bash", {"command": "git push --tags"}), ("Bash", {"command": "git push origin release/2.3"})]:
+        assert decide(name, inp) == "review", (name, inp)
     for name, inp in [("Edit", {"file_path": "C:\\Users\\a\\.claude\\settings.json"}),
                       ("Write", {"file_path": "/home/a/.cursor/mcp.json"}), ("Write", {"file_path": "/home/a/.squidbrake/rules.yaml"}),
                       ("Bash", {"command": "echo x > ~/.codex/hooks.json"}), ("Write", {"file_path": ".env"}),
