@@ -318,8 +318,9 @@ def delete_pilot(code: str):
 @app.get("/v1/admin/provision", dependencies=[Depends(admin)])
 def provision_queue():
     with db() as c:
-        rows = c.execute("SELECT code, subdomain, state FROM pilots WHERE hosted=1").fetchall()
-    return {"domain": HOSTED_DOMAIN, "pilots": [dict(r) | {"dashboard": dashboard_url(r["subdomain"])} for r in rows]}
+        rows = c.execute("SELECT code, subdomain, state, admin_key IS NOT NULL AS keys_ready FROM pilots WHERE hosted=1").fetchall()
+    return {"domain": HOSTED_DOMAIN, "pilots": [dict(r) | {"keys_ready": bool(r["keys_ready"]),
+                                                          "dashboard": dashboard_url(r["subdomain"])} for r in rows]}
 
 
 class ProvisionedIn(BaseModel):

@@ -108,13 +108,16 @@ def test_hosted_pilot_lifecycle(insights):
     assert insights.get("/v1/caddy/ask", params={"domain": "hosted-co.app.example.com.attacker.io"}).status_code == 404
     # the provisioner sees it, starts it and reports the keys; the keys are never in the admin overview
     q = insights.get("/v1/admin/provision", headers=admin).json()["pilots"]
-    assert any(p["code"] == code and p["state"] == "requested" for p in q)
+    assert any(p["code"] == code and p["state"] == "requested" and p["keys_ready"] is False for p in q)
     assert insights.get("/v1/admin/provision").status_code == 401
     assert insights.post("/v1/admin/provisioned", json={"code": code, "state": "running"}).status_code == 401
     insights.post("/v1/admin/provisioned", headers=admin, json={"code": code, "state": "running",
                                                                 "admin_key": "gw_admin_xyz", "agent_key": "gw_agent_xyz"})
     overview = insights.get("/v1/admin/overview", headers=admin).text
     assert "gw_admin_xyz" not in overview and "gw_agent_xyz" not in overview
+    # the provisioner learns the keys arrived (a gateway whose keys never did gets recreated), never the keys
+    q = insights.get("/v1/admin/provision", headers=admin).json()["pilots"]
+    assert any(p["code"] == code and p["keys_ready"] is True for p in q) and "gw_admin_xyz" not in str(q)
     # the founder's page shows them once
     k = insights.post(f"/v1/pilot/{code}/keys").json()
     assert k["admin_key"] == "gw_admin_xyz" and k["agent_key"] == "gw_agent_xyz" and k["dashboard"] == dash
