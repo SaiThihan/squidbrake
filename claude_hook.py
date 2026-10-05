@@ -182,10 +182,19 @@ def _cursor_has_own_hook() -> bool:
 
 
 def main() -> None:
+    # UTF-8 whatever the console's code page, with or without a byte-order mark (Windows shells add one)
+    text = sys.stdin.buffer.read().decode("utf-8-sig", errors="replace").strip()
+    if not text:
+        sys.exit(0)                                 # nothing to check
     try:
-        ev = json.load(sys.stdin)
+        ev = json.loads(text)
+        if not isinstance(ev, dict):
+            raise ValueError("not a JSON object")
     except ValueError:
-        sys.exit(0)
+        if FAIL_OPEN:
+            sys.exit(0)
+        deny("Squidbrake couldn't read what Claude Code sent to its hook, so this was blocked to be safe. "
+             "Tell the user to run: squidbrake doctor")
     if hooklog is not None:
         hooklog.record("cursor-via-claude-code" if ev.get("cursor_version") else "claude-code", str(ev.get("hook_event_name") or ""))
     if str(ev.get("tool_name", "")).startswith(SKIP_PREFIXES):

@@ -52,7 +52,7 @@ def run(monkeypatch):
 
     def go(agent, event):
         monkeypatch.setattr(sys, "argv", ["agent_hook.py", agent])
-        monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(event)))
+        monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(io.BytesIO(json.dumps(event).encode("utf-8"))))
         out = io.StringIO()
         monkeypatch.setattr(sys, "stdout", out)
         with pytest.raises(SystemExit):
@@ -131,3 +131,34 @@ def test_hook_with_no_gateway_blocks_and_explains(monkeypatch, capsys):
         agent_hook.check("antigravity", "Bash", {"command": "ls"}, "s1")
     out = json.loads(capsys.readouterr().out)
     assert out["decision"] == "deny" and "isn't answering" in out["reason"]
+
+
+@pytest.fixture()
+def raw(run, monkeypatch):
+    """Send the hook exact bytes, the way a Windows shell may deliver them."""
+    def go(agent, data: bytes):
+        monkeypatch.setattr(sys, "argv", ["agent_hook.py", agent])
+        monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(io.BytesIO(data)))
+        out = io.StringIO()
+        monkeypatch.setattr(sys, "stdout", out)
+        with pytest.raises(SystemExit):
+            agent_hook.main()
+        return json.loads(out.getvalue()) if out.getvalue().strip() else {}
+    return go
+
+
+def test_a_byte_order_mark_is_read_not_waved_through(raw):
+    """Cursor on Windows sends the event with a UTF-8 byte-order mark; it used to be skipped and allowed."""
+    wipe = json.dumps({"hook_event_name": "beforeShellExecution", "command": "rm -rf build/ ~/", "conversation_id": "c9"})
+    out = raw("cursor", b"\xef\xbb\xbf" + wipe.encode("utf-8"))
+    assert out["permission"] == "deny" and "home folder" in out["user_message"]
+    # non-ASCII in the command, whatever the console code page
+    out = raw("cursor", json.dumps({"hook_event_name": "beforeShellExecution", "command": "rm -rf ~/ # नमस्ते",
+                                    "conversation_id": "c9"}, ensure_ascii=False).encode("utf-8"))
+    assert out["permission"] == "deny"
+
+
+def test_unreadable_input_is_blocked_and_empty_input_is_not(raw):
+    out = raw("cursor", b"\xef\xbb\xbf{not json")
+    assert out["permission"] == "deny" and "couldn't read" in out["user_message"]
+    assert raw("cursor", b"") == {"permission": "allow"}                    # nothing to check

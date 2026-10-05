@@ -29,7 +29,7 @@ def hook(monkeypatch, tmp_path):
     monkeypatch.setattr(claude_hook.httpx, "Client", lambda base_url, headers, timeout: TestClient(server.app, headers=headers))
 
     def run(event: dict) -> str:
-        monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"session_id": "hook-test", **event})))
+        monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(io.BytesIO(json.dumps({"session_id": "hook-test", **event}).encode("utf-8"))))
         out = io.StringIO()
         monkeypatch.setattr(sys, "stdout", out)
         with pytest.raises(SystemExit):
@@ -86,3 +86,17 @@ def test_make_target_that_deletes_is_denied(hook, tmp_path):
     (proj / "Makefile").write_text("test:\n\tpytest -q\n")           # an everyday target still just runs
     assert run({"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": str(proj),
                 "tool_input": {"command": "make test"}, "tool_use_id": "t-make2"}) == ""
+
+
+def test_claude_hook_reads_a_byte_order_mark_and_blocks_unreadable_input(monkeypatch):
+    import claude_hook
+    def go(data: bytes):
+        monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(io.BytesIO(data)))
+        out = io.StringIO()
+        monkeypatch.setattr(sys, "stdout", out)
+        with pytest.raises(SystemExit):
+            claude_hook.main()
+        return out.getvalue()
+    out = go(b"\xef\xbb\xbf{broken")
+    assert '"deny"' in out and "couldn't read" in out
+    assert go(b"") == ""                                                   # nothing to check

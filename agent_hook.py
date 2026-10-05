@@ -182,14 +182,30 @@ def check(agent: str, name: str, inp: dict, session: str | None) -> None:
                          "Don't try to work around it.")
 
 
+def read_event() -> dict | None:
+    """The event on stdin as UTF-8 whatever the console's code page, with or without a byte-order mark (Cursor on
+    Windows sends one). None if nothing came; ValueError if what came isn't a JSON object."""
+    text = sys.stdin.buffer.read().decode("utf-8-sig", errors="replace").strip()
+    if not text:
+        return None
+    ev = json.loads(text)
+    if not isinstance(ev, dict):
+        raise ValueError("not a JSON object")
+    return ev
+
+
 def main() -> None:
     agent = sys.argv[1] if len(sys.argv) > 1 else ""
     if agent not in AGENTS:
         sys.exit(f"usage: agent_hook.py {{{'|'.join(AGENTS)}}} --url URL --key KEY")
     try:
-        ev = json.load(sys.stdin)
+        ev = read_event()
     except ValueError:
-        answer(agent, True)
+        # Something arrived but it isn't an event we can read: never let that through unchecked
+        answer(agent, FAIL_OPEN, f"Squidbrake couldn't read what {agent} sent to its hook, so this was blocked to be "
+                                 "safe. Tell the user to run: squidbrake doctor")
+    if ev is None:
+        answer(agent, True)                       # nothing to check
     if hooklog is not None:
         hooklog.record(agent, str(ev.get("hook_event_name") or (ev.get("toolCall") or {}).get("name") or ev.get("tool_name") or ""))
     action, session = parse(agent, ev)
