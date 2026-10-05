@@ -467,6 +467,8 @@ def overview(request: Request):
         idle = (today - datetime.fromisoformat(last_day).date()).days if last_day else None
         prev = sum(daily[d]["events"] for d in span[:7])
         health = ("not started" if last_day is None else "active" if idle <= 2 else "at risk" if idle <= 6 else "churned")
+        if stage == "active" and health in ("at risk", "churned"):
+            stage = "quiet"           # reporting in, but its agents haven't done anything for 3+ days
         out.append({**p, "dashboard": dashboard_url(p["subdomain"]), "keys_waiting": keys_waiting,
                     "catches": mine_caught[:25], "stopped": len(stopped), "saved": saved,
                     "decide_median_s": waits[len(waits) // 2] if waits else None, "health": health,

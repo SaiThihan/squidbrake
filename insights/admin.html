@@ -5,66 +5,128 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Squidbrake Insights</title>
 <style>
-:root { --bg:#f6f6f4; --card:#fff; --ink:#18181b; --muted:#71717a; --line:#e4e4e7; --soft:#f4f4f5; --accent:#dc2626;
-        --ok:#16a34a; --warn:#d97706; --info:#2563eb; --bar:#6366f1; }
-@media (prefers-color-scheme: dark) { :root { --bg:#111114; --card:#1a1a1f; --ink:#f4f4f5; --muted:#a1a1aa; --line:#2e2e35;
-        --soft:#232329; --accent:#ef4444; --ok:#22c55e; --warn:#f59e0b; --info:#60a5fa; --bar:#818cf8; } }
+:root { --bg:#f7f7f5; --surface:#fff; --ink:#151515; --ink-2:#3d3d42; --muted:#6c6c73; --faint:#a3a3aa;
+        --line:#e6e6e1; --line-2:#f1f1ed; --accent:#d9480f; --ok:#16803c; --warn:#b45309; --bad:#c2271b; --link:#1f4fd1;
+        --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+@media (prefers-color-scheme: dark) { :root { --bg:#0f0f10; --surface:#161618; --ink:#ededee; --ink-2:#c9c9cd; --muted:#8e8e96;
+        --faint:#5c5c63; --line:#26262a; --line-2:#1d1d20; --accent:#f06a2f; --ok:#3fbf6c; --warn:#e3a33b; --bad:#f2554a; --link:#7aa2ff; } }
 * { box-sizing:border-box; }
-body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
-main { max-width:1200px; margin:0 auto; padding:24px 16px 60px; }
-header { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:18px; }
-.brand { font-weight:800; font-size:20px; } .brand span { color:var(--accent); } .brand small { color:var(--muted); font-weight:500; }
-.spacer { flex:1; }
+html { scroll-behavior:smooth; scroll-padding-top:64px; }
+body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.5 var(--sans); -webkit-font-smoothing:antialiased; }
 button, input, textarea { font:inherit; color:inherit; }
-.btn { border:1px solid var(--line); background:var(--card); border-radius:9px; padding:7px 13px; cursor:pointer; }
+a { color:var(--link); text-decoration:none; } a:hover { text-decoration:underline; }
+code { font:12.5px var(--mono); }
+
+.top { position:sticky; top:0; z-index:5; background:color-mix(in srgb, var(--bg) 90%, transparent);
+       backdrop-filter:blur(8px); border-bottom:1px solid var(--line); }
+.top .in { max-width:1240px; margin:0 auto; padding:10px 28px; display:flex; align-items:center; gap:22px; }
+.brand { font-weight:650; font-size:15px; letter-spacing:-.01em; white-space:nowrap; }
+.brand b { color:var(--accent); font-weight:650; } .brand small { color:var(--muted); font-weight:450; font-size:13px; margin-left:6px; }
+.top nav { display:flex; gap:18px; flex-wrap:wrap; }
+.top nav a { color:var(--muted); font-size:13px; } .top nav a:hover { color:var(--ink); text-decoration:none; }
+.spacer { flex:1; }
+main { max-width:1240px; margin:0 auto; padding:30px 28px 72px; }
+
+section { margin-bottom:40px; }
+.sec-h { display:flex; align-items:flex-end; gap:12px; margin-bottom:12px; flex-wrap:wrap; }
+.sec-h h2 { font-size:15px; font-weight:600; margin:0; letter-spacing:-.005em; }
+.sec-h .sub { margin-bottom:1px; }
+.sec-h .act { margin-left:auto; display:flex; gap:8px; }
+.sub { color:var(--muted); font-size:13px; }
+.mini { color:var(--muted); font-size:12.5px; margin-top:2px; }
+.mini b { color:var(--ink); font-weight:600; }
+.foot { color:var(--faint); font-size:12.5px; max-width:780px; }
+
+.btn { display:inline-flex; align-items:center; height:30px; padding:0 12px; border:1px solid var(--line); background:var(--surface);
+       border-radius:7px; font-size:13px; cursor:pointer; color:var(--ink); white-space:nowrap; }
+.btn:hover { border-color:var(--faint); text-decoration:none; }
 .btn.primary { background:var(--ink); color:var(--bg); border-color:var(--ink); }
-a { color:var(--info); } a.btn { color:var(--ink); text-decoration:none; display:inline-block; }
-.cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:18px; }
-.card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
-.card .k { color:var(--muted); font-size:13px; } .card .v { font-size:28px; font-weight:750; letter-spacing:-.02em; }
-.panel { background:var(--card); border:1px solid var(--line); border-radius:12px; margin-bottom:18px; }
-.panel h2 { font-size:16px; margin:0; padding:14px 16px; border-bottom:1px solid var(--line); display:flex; gap:8px; align-items:center; }
-.table-wrap { overflow-x:auto; }
-table { width:100%; border-collapse:collapse; min-width:900px; }
-th, td { text-align:left; padding:11px 14px; border-top:1px solid var(--line); vertical-align:top; }
-th { font-size:12px; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:.04em; border-top:0; }
+.btn.ghost { border-color:transparent; background:none; color:var(--muted); } .btn.ghost:hover { color:var(--ink); }
+.icon-btn { border:0; background:none; color:var(--faint); cursor:pointer; padding:4px 6px; font-size:13px; }
+.icon-btn:hover { color:var(--bad); }
+
+.surface { background:var(--surface); border:1px solid var(--line); border-radius:10px; }
+.stats { display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); background:var(--surface);
+         border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+.stats.cols4 { grid-template-columns:repeat(4, minmax(0, 1fr)); }
+@media (max-width:720px) { .stats.cols4 { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
+.stat { padding:14px 16px 13px; box-shadow:inset -1px -1px 0 var(--line-2); min-width:0; }
+.stat .k { font-size:12px; color:var(--muted); }
+.stat .v { font-size:22px; font-weight:600; letter-spacing:-.02em; font-variant-numeric:tabular-nums; margin-top:3px; line-height:1.2; }
+.stat .v small { font-size:13px; font-weight:500; color:var(--muted); letter-spacing:0; margin-left:4px; }
+.stat .n { font-size:12px; color:var(--muted); margin-top:3px; }
+.stat.warn .n, .stat .n.warn { color:var(--warn); }
+.up { color:var(--ok); } .down { color:var(--bad); }
+
+.grid2 { display:grid; grid-template-columns:minmax(0, 5fr) minmax(0, 7fr); gap:16px; }
+.fun { padding:16px 18px 14px; }
+.fun .r { display:grid; grid-template-columns:minmax(0, 1fr) 46px; gap:4px 12px; padding:7px 0; }
+.fun .r + .r { border-top:1px solid var(--line-2); }
+.fun .l { font-size:13px; color:var(--ink-2); }
+.fun .c { text-align:right; font-weight:600; font-variant-numeric:tabular-nums; }
+.fun .bar { grid-column:1 / -1; height:6px; background:var(--line-2); border-radius:3px; overflow:hidden; }
+.fun .bar i { display:block; height:100%; background:var(--ink-2); opacity:.8; border-radius:3px; }
+.fun .cv { grid-column:1 / -1; font-size:11.5px; color:var(--muted); font-variant-numeric:tabular-nums; }
+.weeks { padding:14px 18px 12px; border-top:1px solid var(--line); display:flex; align-items:flex-end; gap:14px; }
+.weeks .lbl { font-size:12px; color:var(--muted); width:120px; flex:none; align-self:center; }
+.wbars { display:flex; align-items:flex-end; gap:8px; height:56px; flex:1; }
+.wbars div { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; gap:3px;
+             font-size:11px; color:var(--muted); font-variant-numeric:tabular-nums; }
+.wbars i { display:block; width:100%; max-width:28px; background:var(--faint); border-radius:2px; }
+.wbars div:last-child i { background:var(--accent); } .wbars div:last-child { color:var(--ink); font-weight:600; }
+
+.table-wrap { overflow-x:auto; background:var(--surface); border:1px solid var(--line); border-radius:10px; }
+table { width:100%; border-collapse:collapse; min-width:960px; }
+th, td { text-align:left; padding:12px 14px; vertical-align:top; }
+th { font-size:11.5px; color:var(--muted); font-weight:500; letter-spacing:.03em; text-transform:uppercase;
+     border-bottom:1px solid var(--line); padding-top:10px; padding-bottom:10px; white-space:nowrap; }
+tbody > tr:not(.catches) + tr:not(.catches) > td, tr.catches + tr > td { border-top:1px solid var(--line-2); }
+tbody > tr:not(.catches):hover > td { background:color-mix(in srgb, var(--line-2) 55%, transparent); }
 td.num { font-variant-numeric:tabular-nums; }
-.co { font-weight:650; } .sub { color:var(--muted); font-size:13px; }
-.stage { display:inline-block; border-radius:999px; padding:2px 10px; font-size:12.5px; font-weight:650; white-space:nowrap; }
-.s-active { background:color-mix(in srgb,var(--ok) 16%,transparent); color:var(--ok); }
-.s-installed { background:color-mix(in srgb,var(--info) 16%,transparent); color:var(--info); }
-.s-quiet, .s-opened { background:color-mix(in srgb,var(--warn) 16%,transparent); color:var(--warn); }
-.s-sent, .s-left { background:var(--soft); color:var(--muted); }
-.chip { display:inline-block; background:var(--soft); border-radius:6px; padding:1px 7px; margin:2px 3px 0 0; font-size:12.5px; }
-.chip.r { font-family:ui-monospace,Consolas,monospace; font-size:12px; }
-.spark { display:flex; align-items:flex-end; gap:2px; height:34px; }
-.spark i { display:block; width:7px; background:var(--bar); border-radius:2px 2px 0 0; min-height:1px; opacity:.85; }
-.mini { color:var(--muted); font-size:12.5px; margin-top:3px; }
-.mini b { color:var(--ink); }
-form.new { display:grid; grid-template-columns:2fr 2fr 3fr auto; gap:8px; padding:14px 16px; }
-form.new input { border:1px solid var(--line); background:var(--bg); border-radius:9px; padding:8px 10px; }
-.hosted-opt { grid-column:1 / -1; color:var(--muted); font-size:13.5px; }
-.hosted-opt input { width:auto; margin:0 6px 0 0; vertical-align:-2px; }
-.result { margin:0 16px 16px; padding:14px; border-radius:10px; background:var(--soft); display:none; }
-.result textarea { width:100%; min-height:150px; border:1px solid var(--line); border-radius:8px; padding:10px; background:var(--card); }
+.co { font-weight:600; }
+.code { font:12px var(--mono); color:var(--muted); }
+.acts { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; align-items:center; }
+
+.pill { display:inline-flex; align-items:center; gap:7px; font-size:13px; font-weight:500; white-space:nowrap; color:var(--ink-2); }
+.pill::before { content:""; width:7px; height:7px; border-radius:50%; background:var(--faint); flex:none; }
+.s-active::before { background:var(--ok); } .s-installed::before { background:var(--link); }
+.s-quiet::before, .s-opened::before { background:var(--warn); } .s-sent::before, .s-left::before { background:var(--faint); }
+.health { font-size:12px; font-weight:500; } .health.risk { color:var(--warn); } .health.churn { color:var(--bad); }
+.chip { display:inline-block; border:1px solid var(--line); border-radius:5px; padding:0 6px; margin:0 4px 4px 0; font-size:12px; color:var(--ink-2); }
+.chip.r { font:11.5px var(--mono); }
+.spark { display:flex; align-items:flex-end; gap:2px; height:30px; }
+.spark i { display:block; width:6px; background:var(--ink); opacity:.55; border-radius:1px; min-height:1px; }
+
+tr.catches > td { padding:0 14px 12px; }
+tr.catches summary { cursor:pointer; font-size:12.5px; color:var(--muted); padding:2px 0 6px; list-style:none; }
+tr.catches summary::before { content:"\25B8"; display:inline-block; width:14px; transition:transform .15s; }
+tr.catches details[open] summary::before { transform:rotate(90deg); }
+tr.catches summary:hover { color:var(--ink); }
+table.inner { min-width:0; font-size:13px; border:1px solid var(--line-2); border-radius:8px; border-collapse:separate; border-spacing:0; }
+table.inner th, table.inner td { padding:7px 12px; border:0; } table.inner th { background:var(--line-2); text-transform:none; letter-spacing:0; font-size:12px; }
+table.inner tbody tr td { border-top:1px solid var(--line-2); }
+.o-approved { color:var(--ok); } .o-rejected, .o-blocked { color:var(--bad); } .o-waiting, .o-timed { color:var(--warn); }
+
+form.new { display:grid; grid-template-columns:2fr 2fr 3fr auto; gap:8px; padding:16px; }
+form.new input[type=text], form.new input:not([type]) { height:34px; border:1px solid var(--line); background:var(--bg); border-radius:7px; padding:0 10px; }
+form.new input:focus, .login input:focus { outline:2px solid color-mix(in srgb, var(--accent) 35%, transparent); outline-offset:0; border-color:var(--accent); }
+form.new .btn { height:34px; }
+.hosted-opt { grid-column:1 / -1; color:var(--muted); font-size:13px; }
+.hosted-opt input { margin:0 6px 0 0; vertical-align:-2px; accent-color:var(--ink); }
+.result { margin:0 16px 16px; padding:14px; border-radius:8px; background:var(--line-2); display:none; }
+.result textarea { width:100%; min-height:150px; border:1px solid var(--line); border-radius:7px; padding:10px; background:var(--surface); }
 .result .row { display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; }
-.empty { padding:30px 16px; color:var(--muted); text-align:center; }
-.login { max-width:420px; margin:12vh auto; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:24px; }
-.login input { width:100%; border:1px solid var(--line); background:var(--bg); border-radius:9px; padding:9px 11px; margin:10px 0; }
-.err { color:var(--accent); min-height:1.2em; font-size:14px; }
-.icon-btn { border:0; background:none; color:var(--muted); cursor:pointer; padding:2px 4px; }
-.modal { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:10; padding:0 16px; }
-@media (max-width:720px) { form.new { grid-template-columns:1fr; } }
-  tr.catches td { background: var(--bg, #fafafa); padding-top: 0 }
-  tr.catches summary { cursor: pointer; font-size: 13px; padding: 6px 0 }
-  table.inner { width: 100%; margin: 6px 0; font-size: 13px }
-  table.inner th, table.inner td { padding: 4px 8px }
-  .funnel { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 16px 6px }
-  .fstep { flex: 1 1 140px; border: 1px solid var(--line, #ddd); border-radius: 8px; padding: 8px 10px }
-  .fstep .k { font-size: 12px; opacity: .75 } .fstep .v { font-size: 22px; font-weight: 700 }
-  .wbars { display: flex; gap: 6px; align-items: flex-end; height: 70px; margin-top: 6px }
-  .wbars div { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 11px }
-  .wbars i { display: block; width: 22px; background: var(--accent, #e2481b); border-radius: 3px 3px 0 0 }
+.empty { padding:28px 16px; color:var(--muted); text-align:center; font-size:13px; }
+.notice { display:flex; gap:12px; align-items:center; padding:12px 16px; margin-bottom:28px; border:1px solid color-mix(in srgb, var(--warn) 40%, var(--line));
+          background:color-mix(in srgb, var(--warn) 6%, var(--surface)); border-radius:10px; font-size:13px; }
+.login { max-width:380px; margin:14vh auto; background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:26px; }
+.login input { width:100%; height:36px; border:1px solid var(--line); background:var(--bg); border-radius:7px; padding:0 11px; margin:12px 0 10px; }
+.login .btn { width:100%; justify-content:center; height:36px; }
+.err { color:var(--bad); min-height:1.2em; font-size:13px; margin-top:8px; }
+.modal { position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:10; padding:0 16px; }
+@media (max-width:900px) { .grid2 { grid-template-columns:1fr; } .top nav { display:none; } }
+@media (max-width:720px) { form.new { grid-template-columns:1fr; } main, .top .in { padding-left:16px; padding-right:16px; } }
 </style>
 </head>
 <body>
@@ -92,10 +154,10 @@ const STAGE = { "active": ["Active", "s-active"], "installed": ["Installed, no a
   "setup failed": ["Setup failed", "s-quiet"], "deleting": ["Deleting", "s-left"] };
 
 function login(msg = "") {
-  app.innerHTML = `<div class="login"><div class="brand">Squid<span>brake</span> <small>Insights</small></div>
+  app.innerHTML = `<div class="login"><div class="brand">Squid<b>brake</b> <small>Pilots</small></div>
     <p class="sub">Your pilots, at a glance. Sign in with your password (the first time: the server key from the .env).</p>
     <form id="lf"><input id="lk" type="password" placeholder="Password" autocomplete="current-password" autofocus>
-    <button class="btn primary" style="width:100%">Sign in</button><div class="err">${esc(msg)}</div></form></div>`;
+    <button class="btn primary">Sign in</button><div class="err">${esc(msg)}</div></form></div>`;
   document.getElementById("lf").onsubmit = async (e) => {
     e.preventDefault();
     const r = await fetch("/v1/admin/login", { method: "POST", headers: { "Content-Type": "application/json" },
@@ -161,45 +223,50 @@ async function load() {
   let d, me, asks, inv;
   try { [d, me, asks, inv] = await Promise.all([api("/v1/admin/overview"), api("/v1/admin/me"), api("/v1/admin/team-requests"),
                                                 api("/v1/admin/traction")]); }
-  catch (e) { if (e.message !== "unauthorized") app.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
+  catch (e) { if (e.message !== "unauthorized") app.innerHTML = `<main><p class="err">${esc(e.message)}</p></main>`; return; }
   const w = d.week;
   app.innerHTML = `
-    <header><div class="brand">Squid<span>brake</span> <small>Insights</small></div><span class="spacer"></span>
-      <button class="btn" id="refresh">↻ Refresh</button><button class="btn" id="pw">${me.has_password ? "Change password" : "Set password"}</button>
-      <button class="btn" id="logout">Log out</button></header>
-    ${me.has_password ? "" : `<div class="panel" style="padding:12px 16px;border-color:var(--warn)"><b>Set your own password</b>
-      <span class="sub">so you don't have to use the server key.</span> <button class="btn" id="pw2">Set password</button></div>`}
-    <section class="panel"><h2>This week <button class="btn" style="margin-left:auto" data-copy="${esc(weeklyReport(d))}">Copy weekly report</button></h2>
-      <div class="cards" style="padding:14px 16px 0;margin-bottom:10px">
-        ${card("Active today", d.scorecard.active_today)}${card("Active this week", d.scorecard.active_this_week)}
-        ${card("3+ days this week", d.scorecard.active_3_plus_days)}
-        ${cardText("Back from last week", `${d.scorecard.retained} of ${d.scorecard.active_last_week}`)}
-        ${card("Held for a person", w.held)}${card("Blocked", w.blocked)}
-        ${cardText("Holds approved", d.scorecard.approve_rate === null ? "–" : d.scorecard.approve_rate + "%",
-                   d.scorecard.approve_rate > 90 ? "Over 90%: the rules hold things people are fine with" : "")}
-        ${cardText("At risk / churned", `${d.scorecard.at_risk} / ${d.scorecard.churned}`,
-                   d.scorecard.at_risk + d.scorecard.churned ? "No activity for 3+ days (at risk) or 7+ days (churned)" : "")}
-        ${cardText("Stopped (rejected or blocked)", String(d.scorecard.stopped), savedText(d.scorecard.saved))}
-      </div>
-      <div class="sub" style="padding:0 16px 14px">${d.pilots.length} pilots · ${d.installs} installs · ${w.events.toLocaleString()} actions this week${w.would_block ? ` · ${w.would_block} would block (shadow)` : ""}</div>
-    </section>
+    <div class="top"><div class="in"><div class="brand">Squid<b>brake</b> <small>Pilots</small></div>
+      <nav><a href="#week">This week</a><a href="#traction">Traction</a><a href="#pilots">Pilots</a><a href="#requests">Requests</a><a href="#new">New pilot</a></nav>
+      <span class="spacer"></span>
+      <button class="btn ghost" id="refresh">Refresh</button><button class="btn ghost" id="pw">${me.has_password ? "Password" : "Set password"}</button>
+      <button class="btn ghost" id="logout">Sign out</button></div></div>
+    <main>
+    ${me.has_password ? "" : `<div class="notice"><span><b>Set your own password</b> so you don't have to sign in with the server key.</span>
+      <button class="btn" id="pw2" style="margin-left:auto">Set password</button></div>`}
+    <section id="week"><div class="sec-h"><h2>This week</h2>
+        <span class="sub">${d.pilots.length} pilots · ${d.installs} installs · ${w.events.toLocaleString()} actions${w.would_block ? ` · ${w.would_block} would block (shadow)` : ""}</span>
+        <div class="act"><button class="btn" data-copy="${esc(weeklyReport(d))}">Copy weekly report</button></div></div>
+      <div class="stats cols4">
+        ${stat("Active this week", d.scorecard.active_this_week, `${d.scorecard.active_today} today`)}
+        ${stat("Active 3+ days", d.scorecard.active_3_plus_days)}
+        ${stat("Back from last week", `${d.scorecard.retained}<small>of ${d.scorecard.active_last_week}</small>`)}
+        ${stat("Held for a person", w.held)}${stat("Blocked", w.blocked)}
+        ${stat("Holds approved", d.scorecard.approve_rate === null ? "–" : d.scorecard.approve_rate + "%",
+               d.scorecard.approve_rate > 90 ? "Over 90%: rules may be holding routine work" : "", d.scorecard.approve_rate > 90)}
+        ${stat("At risk · churned", `${d.scorecard.at_risk}<small>·</small> ${d.scorecard.churned}`, "3+ / 7+ days without activity", d.scorecard.at_risk + d.scorecard.churned > 0)}
+        ${stat("Stopped", d.scorecard.stopped, savedText(d.scorecard.saved) ? "saved " + savedText(d.scorecard.saved) : "rejected or blocked")}
+      </div></section>
     ${tractionPanel(inv)}
+    <section id="pilots"><div class="sec-h"><h2>Pilots</h2><span class="sub">Hosted dashboards report every 2 minutes</span>
+        <div class="act"><a class="btn" href="#new">New pilot</a></div></div>
+      ${d.pilots.length ? `<div class="table-wrap"><table><thead><tr><th>Company</th><th>Status</th><th>Last 14 days</th>
+        <th>Last 7 days</th><th>Agents</th><th>What fired</th><th></th></tr></thead><tbody>${d.pilots.map(row).join("")}</tbody></table></div>`
+        : `<div class="surface empty">No pilots yet. Create a link below and send it to a founder.</div>`}
+    </section>
     ${teamPanel(asks)}
-    <section class="panel"><h2>New pilot</h2>
-      <form class="new" id="nf"><input id="nc" placeholder="Company (e.g. Acme)" required maxlength="80">
+    <section id="new"><div class="sec-h"><h2>New pilot</h2><span class="sub">Creates a setup link; with Hosted, their own dashboard too</span></div>
+      <div class="surface"><form class="new" id="nf"><input id="nc" placeholder="Company, e.g. Pilot C" required maxlength="80">
         <input id="nk" placeholder="Contact (name, email, phone)" maxlength="120">
-        <input id="nn" placeholder="Note (how you met, what they build)" maxlength="500">
+        <input id="nn" placeholder="Note: how you met, what they build" maxlength="500">
         <button class="btn primary">Create link</button>
-        <label class="hosted-opt"><input type="checkbox" id="nh" checked> <b>Hosted</b>: their own dashboard at
-          <i>name</i>.app.squidbrake.com, nothing to keep running on their laptop (uncheck for the private setup: everything on their machine)</label></form>
-      <div class="result" id="res"></div>
+        <label class="hosted-opt"><input type="checkbox" id="nh" checked> <b>Hosted</b>: their own dashboard at <i>name</i>.app.squidbrake.com,
+          nothing to keep running on their laptop. Use a neutral name: it appears in the dashboard's address.</label></form>
+      <div class="result" id="res"></div></div>
     </section>
-    <section class="panel"><h2>Pilots</h2>
-      ${d.pilots.length ? `<div class="table-wrap"><table><thead><tr><th>Company</th><th>Stage</th><th>Last 14 days</th>
-        <th>7 days</th><th>Agents</th><th>What fired</th><th></th></tr></thead><tbody>${d.pilots.map(row).join("")}</tbody></table></div>`
-        : `<div class="empty">No pilots yet. Create a link above and send it to a founder.</div>`}
-    </section>
-    <p class="sub">Counts, and for held or blocked actions only the program, rule, outcome and sizes: Squidbrake never sends commands' arguments, file names, code, prompts or tool inputs here. Hosted dashboards report every 2 minutes; this page refreshes every minute.</p>`;
+    <p class="foot">Counts, and for held or blocked actions only the program, rule, outcome and sizes as numbers. Squidbrake never sends
+      command arguments, file names, code, prompts or tool inputs here.</p>
+    </main>`;
   document.getElementById("refresh").onclick = load;
   document.getElementById("logout").onclick = async () => {
     await fetch("/v1/admin/logout", { method: "POST", headers: { "X-Admin-Key": key } }).catch(() => {});
@@ -229,29 +296,37 @@ async function load() {
 const pct = (v) => v === null || v === undefined ? "–" : `${v > 0 ? "+" : ""}${v}%`;
 function tractionPanel(v) {
   if (!v) return "";
-  const top = v.funnel[0].count || 0;
-  const funnel = v.funnel.map((f, i) => `<div class="fstep"><div class="k">${esc(f.step)}</div><div class="v">${f.count}</div>
-    <div class="mini">${i && top ? Math.round(100 * f.count / top) + "% of created" : ""}${i && v.funnel[i - 1].count ? " · " + Math.round(100 * f.count / v.funnel[i - 1].count) + "% of previous" : ""}</div></div>`).join("");
+  const top = Math.max(1, v.funnel[0].count || 0);
+  const funnel = v.funnel.map((f, i) => `<div class="r"><span class="l">${esc(f.step)}</span><span class="c">${f.count}</span>
+      <span class="bar"><i style="width:${Math.max(f.count ? 2 : 0, 100 * f.count / top)}%"></i></span>
+      ${i ? `<span class="cv">${Math.round(100 * f.count / top)}% of created${v.funnel[i - 1].count ? ` · ${Math.round(100 * f.count / v.funnel[i - 1].count)}% of the step before` : ""}</span>` : ""}</div>`).join("");
   const maxA = Math.max(1, ...v.weeks.map((w) => w.active_pilots));
-  const bars = `<div class="wbars" title="Active pilots per week, last 8 weeks">${v.weeks.map((w) =>
-    `<div><i style="height:${Math.max(2, 48 * w.active_pilots / maxA)}px"></i><span>${w.active_pilots}</span></div>`).join("")}</div>`;
-  const o = v.oss || {};
-  return `<section class="panel"><h2>Traction <button class="btn" style="margin-left:auto" data-copy="${esc(tractionUpdate(v))}">Copy update</button></h2>
-    <div class="funnel">${funnel}</div>
-    <div class="cards" style="padding:4px 16px 0">
-      ${cardText("MRR / ARR", `$${v.mrr.toLocaleString()} / $${v.arr.toLocaleString()}`, v.paying.length ? v.paying.map((p) => `${p.company} $${p.mrr}`).join(", ") : "Mark a pilot as paying with its $ button")}
-      ${cardText("Active pilots this week", `${v.weeks.at(-1).active_pilots} (${pct(v.active_pilots_wow)} WoW)`)}
-      ${cardText("Actions this week", `${v.weeks.at(-1).actions.toLocaleString()} (${pct(v.actions_wow)} WoW)`)}
-      ${cardText("Retention", `W1 ${v.retention_w1 ?? "–"}% · W4 ${v.retention_w4 ?? "–"}%`, "Of pilots active 1 / 4 weeks ago, the share active this week")}
-      ${cardText("Days to first action", v.median_days_to_first_action === null ? "–" : `${v.median_days_to_first_action} (median)`)}
-      ${cardText("Depth", `${v.actions_per_active_pilot} actions / active pilot / wk · ${v.agents_per_active_install} agents`)}
-      ${cardText("Stopped this week", String(v.stopped_this_week), savedText(v.saved_this_week) ? "saved " + savedText(v.saved_this_week) : "")}
-      ${cardText("Holds approved / time to decide", `${v.approve_rate ?? "–"}% · ${v.median_seconds_to_decide === null ? "–" : fmtSecs(v.median_seconds_to_decide)}`)}
-      ${cardText("Inbound (teams asking)", `${v.inbound_this_week} this week · ${v.inbound_total} total`)}
-      ${cardText("Open source", `${o.stars ?? "–"} stars · ${o.forks ?? "–"} forks · ${o.contributors ?? "–"} contributors`, o.downloads_last_week !== undefined && o.downloads_last_week !== null ? `PyPI: ${Number(o.downloads_last_week).toLocaleString()} downloads last week (includes mirrors and CI)` : "")}
-    </div>
-    <div style="padding:0 16px 14px"><div class="mini">Active pilots per week, last 8 weeks</div>${bars}</div>
-  </section>`;
+  const bars = v.weeks.map((w) => `<div title="Week to ${w.week_ending}: ${w.active_pilots} active, ${w.actions} actions">
+      <span>${w.active_pilots}</span><i style="height:${Math.max(2, 40 * w.active_pilots / maxA)}px"></i></div>`).join("");
+  const o = v.oss || {}, w = v.weeks.at(-1);
+  const paying = v.paying.length ? v.paying.map((p) => `${p.company} $${p.mrr}`).join(", ") : "mark a pilot as paying from its row";
+  return `<section id="traction"><div class="sec-h"><h2>Traction</h2><span class="sub">From signup to paying, and whether teams keep using it</span>
+      <div class="act"><button class="btn" data-copy="${esc(tractionUpdate(v))}">Copy update</button></div></div>
+    <div class="grid2">
+      <div class="surface fun">${funnel}</div>
+      <div class="surface" style="overflow:hidden">
+        <div class="stats" style="border:0;border-radius:0">
+          ${stat("MRR", `$${v.mrr.toLocaleString()}`, paying)}
+          ${stat("ARR", `$${v.arr.toLocaleString()}`)}
+          ${stat("Active pilots", `${w.active_pilots}${trend(v.active_pilots_wow)}`, "this week, vs last week")}
+          ${stat("Actions", `${w.actions.toLocaleString()}${trend(v.actions_wow)}`, "this week, vs last week")}
+          ${stat("Retention", `${v.retention_w1 === null ? "–" : v.retention_w1 + "%"}<small>W1</small> ${v.retention_w4 === null ? "–" : v.retention_w4 + "%"}<small>W4</small>`, "still active 1 and 4 weeks later")}
+          ${stat("Time to first action", v.median_days_to_first_action === null ? "–" : `${v.median_days_to_first_action}<small>days</small>`, "median, from the link")}
+          ${stat("Depth", `${v.actions_per_active_pilot}<small>actions / wk</small>`, `${v.agents_per_active_install} agents per install`)}
+          ${stat("Stopped", v.stopped_this_week, savedText(v.saved_this_week) ? "saved " + savedText(v.saved_this_week) : "rejected or blocked this week")}
+          ${stat("Holds approved", v.approve_rate === null ? "–" : v.approve_rate + "%", v.median_seconds_to_decide === null ? "" : "decided in " + fmtSecs(v.median_seconds_to_decide) + " (median)")}
+          ${stat("Teams asking", v.inbound_this_week, `${v.inbound_total} total, from the /team form`)}
+          ${stat("GitHub", `${o.stars ?? "–"}<small>stars</small>`, `${o.forks ?? "–"} forks · ${o.contributors ?? "–"} contributors`)}
+          ${stat("PyPI downloads", o.downloads_last_week === undefined || o.downloads_last_week === null ? "–" : Number(o.downloads_last_week).toLocaleString(), "last week, mirrors and CI included")}
+        </div>
+        <div class="weeks"><span class="lbl">Active pilots,<br>last 8 weeks</span><div class="wbars">${bars}</div></div>
+      </div>
+    </div></section>`;
 }
 
 function tractionUpdate(v) {
@@ -276,17 +351,17 @@ function teamPanel(asks) {
     <td>${esc(a.agents || "–")}</td><td style="max-width:340px;white-space:pre-wrap">${esc(a.note || "")}</td>
     <td>${esc(FROM[a.source] || a.source || "–")}<div class="mini">${ago(a.created_at)}</div></td>
     <td><button class="btn" data-done="${a.id}" data-to="${a.done ? 0 : 1}">${a.done ? "Reopen" : "Mark replied"}</button></td></tr>`).join("");
-  return `<section class="panel"${open.length ? ' style="border-color:var(--accent)"' : ""}><h2>Teams asking for help
-      ${open.length ? `<span class="sub">${open.length} waiting for a reply</span>` : ""}
-      <a class="btn" style="margin-left:auto" href="/team" target="_blank" rel="noopener">Open the form</a></h2>
+  return `<section id="requests"><div class="sec-h"><h2>Teams asking for help</h2>
+      <span class="sub">${open.length ? `${open.length} waiting for a reply` : "People who installed on their own and want help"}</span>
+      <div class="act"><a class="btn" href="/team" target="_blank" rel="noopener">Open the form</a></div></div>
     ${asks.length ? `<div class="table-wrap"><table><thead><tr><th>Who</th><th>Company</th><th>Agents</th><th>Note</th>
       <th>From</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
-      : `<div class="empty">Nobody yet. The form is linked from <code>connect all</code> and the dashboard's Team page.</div>`}
+      : `<div class="surface empty">Nobody yet. The form is linked from <code>connect all</code> and the dashboard's Team page.</div>`}
   </section>`;
 }
 
-const card = (k, v) => `<div class="card"><div class="k">${k}</div><div class="v">${Number(v || 0).toLocaleString()}</div></div>`;
-const cardText = (k, v, warn = "") => `<div class="card"${warn ? ` title="${esc(warn)}" style="border-color:var(--warn)"` : ""}><div class="k">${k}</div><div class="v">${esc(v)}</div>${warn ? `<div class="mini">${esc(warn)}</div>` : ""}</div>`;
+const stat = (k, v, note = "", warn = false) => `<div class="stat${warn ? " warn" : ""}"><div class="k">${k}</div><div class="v">${typeof v === "number" ? v.toLocaleString() : v}</div>${note ? `<div class="n">${esc(note)}</div>` : ""}</div>`;
+const trend = (v) => v === null || v === undefined ? "" : `<small class="${v >= 0 ? "up" : "down"}">${v > 0 ? "+" : ""}${v}%</small>`;
 
 // What to send a cofounder every week: usage, not output
 function weeklyReport(d) {
@@ -308,41 +383,41 @@ function row(p) {
   const agents = Object.entries(p.agents).map(([a, n]) => `<span class="chip">${esc(a)} · ${n}</span>`).join("") || `<span class="sub">none yet</span>`;
   const hits = Object.entries(p.rules_hit).map(([r, n]) => `<span class="chip r">${esc(r)} · ${n}</span>`).join("") || `<span class="sub">nothing</span>`;
   return `<tr><td><div class="co">${esc(p.company)}</div><div class="sub">${esc(p.contact || "")}</div>
-      <div class="sub">${esc(p.note || "")}</div><div class="mini">code <b>${esc(p.code)}</b> · link opened ${p.page_views}×</div>
+      <div class="sub">${esc(p.note || "")}</div><div class="mini"><span class="code">${esc(p.code)}</span> · link opened ${p.page_views}×</div>
       ${p.hosted ? `<div class="mini">hosted: <a href="${esc(p.dashboard)}" target="_blank" rel="noopener">${esc((p.dashboard || "").replace("https://", ""))}</a></div>
       <div class="mini">${p.keys_revealed_at ? "keys shown " + ago(p.keys_revealed_at) : p.keys_waiting ? "keys waiting on their page" : ""}${p.error ? `<span style="color:var(--accent)"> · ${esc(p.error)}</span>` : ""}</div>` : ""}</td>
-    <td><span class="stage ${cls}">${label}</span> ${healthBadge(p)}<div class="mini">last seen ${ago(p.last_seen)}</div>
+    <td><span class="pill ${cls}">${label}</span><div>${healthBadge(p)}</div><div class="mini">last seen ${ago(p.last_seen)}</div>
       <div class="mini">${p.installs} install${p.installs === 1 ? "" : "s"}${p.versions.length ? " · v" + esc(p.versions.join(", ")) : ""}${p.modes.includes("shadow") ? " · shadow" : ""}</div></td>
     <td>${spark}<div class="mini"><b>${p.total_events.toLocaleString()}</b> actions all time</div></td>
     <td class="num"><div><b>${w.events}</b> actions</div><div class="mini">${w.held} held · ${w.approved} approved · ${w.rejected} rejected</div>
       <div class="mini">${w.blocked} blocked${w.would_block ? ` · ${w.would_block} would block` : ""}${w.timed_out ? ` · ${w.timed_out} timed out` : ""}</div>
       ${p.stopped ? `<div class="mini"><b>stopped ${p.stopped}</b>${savedText(p.saved) ? " · saved " + esc(savedText(p.saved)) : ""}</div>` : ""}
       ${p.decide_median_s !== null && p.decide_median_s !== undefined ? `<div class="mini">decided in ${fmtSecs(p.decide_median_s)} (median)</div>` : ""}
-      ${p.trend !== null && p.trend !== undefined ? `<div class="mini">${p.trend >= 0 ? "▲" : "▼"} ${Math.abs(p.trend)}% vs last week</div>` : ""}</td>
+      ${p.trend !== null && p.trend !== undefined ? `<div class="mini"><span class="${p.trend >= 0 ? "up" : "down"}">${p.trend > 0 ? "+" : ""}${p.trend}%</span> vs last week</div>` : ""}</td>
     <td>${agents}</td><td>${hits}</td>
-    <td>${followUp(p) ? `<button class="btn" data-copy="${esc(followUp(p))}" title="A message for where they are now">Copy follow-up</button>` : ""}
+    <td><div class="acts">${followUp(p) ? `<button class="btn" data-copy="${esc(followUp(p))}" title="A message for where they are now">Follow-up</button>` : ""}
       <button class="btn" data-copy="${esc(p.link)}">Copy link</button>
-      <button class="btn" data-mrr="${p.mrr || ""}" data-code="${esc(p.code)}" data-name="${esc(p.company)}" title="Mark as paying (monthly revenue)">${p.mrr ? "$" + Number(p.mrr).toLocaleString() + "/mo" : "$ Paying?"}</button>
-      <button class="icon-btn" title="Delete pilot" data-del="${esc(p.code)}" data-warn="${esc(deleteWarning(p))}">✕</button></td></tr>
-    ${p.catches && p.catches.length ? `<tr class="catches"><td colspan="7"><details><summary>What it held or blocked (${p.catches.length})</summary>
+      <button class="btn" data-mrr="${p.mrr || ""}" data-code="${esc(p.code)}" data-name="${esc(p.company)}" title="Monthly revenue from this pilot">${p.mrr ? "$" + Number(p.mrr).toLocaleString() + "/mo" : "Set revenue"}</button>
+      <button class="icon-btn" title="Delete pilot" data-del="${esc(p.code)}" data-warn="${esc(deleteWarning(p))}">Delete</button></div></td></tr>
+    ${p.catches && p.catches.length ? `<tr class="catches"><td colspan="7"><details><summary>What it held or blocked · ${p.catches.length}</summary>
       <table class="inner"><thead><tr><th>When</th><th>Agent</th><th>Action</th><th>Why</th><th>Outcome</th><th>Would have changed</th><th>Decided in</th></tr></thead>
       <tbody>${p.catches.map(catchRow).join("")}</tbody></table>
-      <div class="mini">The program only (never its arguments, files or prompts), the rule's reason, and sizes as numbers.</div></details></td></tr>` : ""}`;
+      <div class="mini" style="margin-top:6px">Program only (never its arguments, files or prompts), the rule's reason, and sizes as numbers.</div></details></td></tr>` : ""}`;
 }
 
-const HEALTH = { "active": ["", ""], "at risk": ["At risk", "var(--warn)"], "churned": ["Churned", "var(--accent)"], "not started": ["", ""] };
+const HEALTH = { "at risk": ["At risk", "risk"], "churned": ["Churned", "churn"] };
 function healthBadge(p) {
-  const [label, color] = HEALTH[p.health] || ["", ""];
-  return label ? `<span class="mini" style="color:${color};font-weight:600" title="No activity for ${p.idle_days} days">${label} · ${p.idle_days}d idle</span>` : "";
+  const [label, cls] = HEALTH[p.health] || ["", ""];
+  return label ? `<span class="health ${cls}" title="No activity for ${p.idle_days} days">${label} · ${p.idle_days} days idle</span>` : "";
 }
 const savedText = (s) => Object.entries(s || {}).map(([k, v]) => `${Number(v).toLocaleString()} ${v === 1 ? k.replace(/s$/, "") : k}`).join(", ");
 const fmtSecs = (s) => s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s / 60)} min` : `${Math.round(s / 3600)} h`;
-const OUTCOME = { approved: "var(--ok, #2e7d32)", rejected: "var(--accent)", blocked: "var(--accent)", "timed out": "var(--warn)", waiting: "var(--warn)" };
+const OUTCOME = { approved: "o-approved", rejected: "o-rejected", blocked: "o-blocked", "timed out": "o-timed", waiting: "o-waiting" };
 function catchRow(x) {
-  const action = x.program ? `<code>${esc(x.program)}</code>${x.category ? ` <span class="mini">${esc(x.category)}</span>` : ""}` : `<code>${esc(x.tool || "")}</code>`;
-  return `<tr><td class="mini">${esc(x.t.replace("T", " "))}</td><td>${esc(x.agent || "")}</td><td>${action}</td>
+  const action = x.program ? `<code>${esc(x.program)}</code>${x.category ? ` <span class="sub">${esc(x.category)}</span>` : ""}` : `<code>${esc(x.tool || "")}</code>`;
+  return `<tr><td class="sub" style="white-space:nowrap">${esc(x.t.replace("T", " "))}</td><td>${esc(x.agent || "")}</td><td>${action}</td>
     <td>${esc(x.why || "")}<div class="mini">${esc(x.rule || "")}</div></td>
-    <td style="color:${OUTCOME[x.outcome] || "inherit"};font-weight:600">${esc(x.outcome || "")}</td>
+    <td class="${OUTCOME[x.outcome] || ""}" style="font-weight:500">${esc(x.outcome || "")}</td>
     <td>${esc(savedText(x.saved)) || '<span class="mini">–</span>'}</td><td class="mini">${x.decide_s !== undefined ? fmtSecs(x.decide_s) : "–"}</td></tr>`;
 }
 
