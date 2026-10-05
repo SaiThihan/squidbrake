@@ -55,6 +55,10 @@ form.new input { border:1px solid var(--line); background:var(--bg); border-radi
 .icon-btn { border:0; background:none; color:var(--muted); cursor:pointer; padding:2px 4px; }
 .modal { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:10; padding:0 16px; }
 @media (max-width:720px) { form.new { grid-template-columns:1fr; } }
+  tr.catches td { background: var(--bg, #fafafa); padding-top: 0 }
+  tr.catches summary { cursor: pointer; font-size: 13px; padding: 6px 0 }
+  table.inner { width: 100%; margin: 6px 0; font-size: 13px }
+  table.inner th, table.inner td { padding: 4px 8px }
 </style>
 </head>
 <body>
@@ -166,6 +170,9 @@ async function load() {
         ${card("Held for a person", w.held)}${card("Blocked", w.blocked)}
         ${cardText("Holds approved", d.scorecard.approve_rate === null ? "–" : d.scorecard.approve_rate + "%",
                    d.scorecard.approve_rate > 90 ? "Over 90%: the rules hold things people are fine with" : "")}
+        ${cardText("At risk / churned", `${d.scorecard.at_risk} / ${d.scorecard.churned}`,
+                   d.scorecard.at_risk + d.scorecard.churned ? "No activity for 3+ days (at risk) or 7+ days (churned)" : "")}
+        ${cardText("Stopped (rejected or blocked)", String(d.scorecard.stopped), savedText(d.scorecard.saved))}
       </div>
       <div class="sub" style="padding:0 16px 14px">${d.pilots.length} pilots · ${d.installs} installs · ${w.events.toLocaleString()} actions this week${w.would_block ? ` · ${w.would_block} would block (shadow)` : ""}</div>
     </section>
@@ -184,7 +191,7 @@ async function load() {
         <th>7 days</th><th>Agents</th><th>What fired</th><th></th></tr></thead><tbody>${d.pilots.map(row).join("")}</tbody></table></div>`
         : `<div class="empty">No pilots yet. Create a link above and send it to a founder.</div>`}
     </section>
-    <p class="sub">Counts only: Squidbrake never sends commands, code, prompts or tool inputs here. Refreshes every minute.</p>`;
+    <p class="sub">Counts, and for held or blocked actions only the program, rule, outcome and sizes: Squidbrake never sends commands' arguments, file names, code, prompts or tool inputs here. Hosted dashboards report every 2 minutes; this page refreshes every minute.</p>`;
   document.getElementById("refresh").onclick = load;
   document.getElementById("logout").onclick = async () => {
     await fetch("/v1/admin/logout", { method: "POST", headers: { "X-Admin-Key": key } }).catch(() => {});
@@ -249,15 +256,38 @@ function row(p) {
       <div class="sub">${esc(p.note || "")}</div><div class="mini">code <b>${esc(p.code)}</b> · link opened ${p.page_views}×</div>
       ${p.hosted ? `<div class="mini">hosted: <a href="${esc(p.dashboard)}" target="_blank" rel="noopener">${esc((p.dashboard || "").replace("https://", ""))}</a></div>
       <div class="mini">${p.keys_revealed_at ? "keys shown " + ago(p.keys_revealed_at) : p.keys_waiting ? "keys waiting on their page" : ""}${p.error ? `<span style="color:var(--accent)"> · ${esc(p.error)}</span>` : ""}</div>` : ""}</td>
-    <td><span class="stage ${cls}">${label}</span><div class="mini">last seen ${ago(p.last_seen)}</div>
+    <td><span class="stage ${cls}">${label}</span> ${healthBadge(p)}<div class="mini">last seen ${ago(p.last_seen)}</div>
       <div class="mini">${p.installs} install${p.installs === 1 ? "" : "s"}${p.versions.length ? " · v" + esc(p.versions.join(", ")) : ""}${p.modes.includes("shadow") ? " · shadow" : ""}</div></td>
     <td>${spark}<div class="mini"><b>${p.total_events.toLocaleString()}</b> actions all time</div></td>
     <td class="num"><div><b>${w.events}</b> actions</div><div class="mini">${w.held} held · ${w.approved} approved · ${w.rejected} rejected</div>
-      <div class="mini">${w.blocked} blocked${w.would_block ? ` · ${w.would_block} would block` : ""}${w.timed_out ? ` · ${w.timed_out} timed out` : ""}</div></td>
+      <div class="mini">${w.blocked} blocked${w.would_block ? ` · ${w.would_block} would block` : ""}${w.timed_out ? ` · ${w.timed_out} timed out` : ""}</div>
+      ${p.stopped ? `<div class="mini"><b>stopped ${p.stopped}</b>${savedText(p.saved) ? " · saved " + esc(savedText(p.saved)) : ""}</div>` : ""}
+      ${p.decide_median_s !== null && p.decide_median_s !== undefined ? `<div class="mini">decided in ${fmtSecs(p.decide_median_s)} (median)</div>` : ""}
+      ${p.trend !== null && p.trend !== undefined ? `<div class="mini">${p.trend >= 0 ? "▲" : "▼"} ${Math.abs(p.trend)}% vs last week</div>` : ""}</td>
     <td>${agents}</td><td>${hits}</td>
     <td>${followUp(p) ? `<button class="btn" data-copy="${esc(followUp(p))}" title="A message for where they are now">Copy follow-up</button>` : ""}
       <button class="btn" data-copy="${esc(p.link)}">Copy link</button>
-      <button class="icon-btn" title="Delete pilot" data-del="${esc(p.code)}" data-warn="${esc(deleteWarning(p))}">✕</button></td></tr>`;
+      <button class="icon-btn" title="Delete pilot" data-del="${esc(p.code)}" data-warn="${esc(deleteWarning(p))}">✕</button></td></tr>
+    ${p.catches && p.catches.length ? `<tr class="catches"><td colspan="7"><details><summary>What it held or blocked (${p.catches.length})</summary>
+      <table class="inner"><thead><tr><th>When</th><th>Agent</th><th>Action</th><th>Why</th><th>Outcome</th><th>Would have changed</th><th>Decided in</th></tr></thead>
+      <tbody>${p.catches.map(catchRow).join("")}</tbody></table>
+      <div class="mini">The program only (never its arguments, files or prompts), the rule's reason, and sizes as numbers.</div></details></td></tr>` : ""}`;
+}
+
+const HEALTH = { "active": ["", ""], "at risk": ["At risk", "var(--warn)"], "churned": ["Churned", "var(--accent)"], "not started": ["", ""] };
+function healthBadge(p) {
+  const [label, color] = HEALTH[p.health] || ["", ""];
+  return label ? `<span class="mini" style="color:${color};font-weight:600" title="No activity for ${p.idle_days} days">${label} · ${p.idle_days}d idle</span>` : "";
+}
+const savedText = (s) => Object.entries(s || {}).map(([k, v]) => `${Number(v).toLocaleString()} ${v === 1 ? k.replace(/s$/, "") : k}`).join(", ");
+const fmtSecs = (s) => s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s / 60)} min` : `${Math.round(s / 3600)} h`;
+const OUTCOME = { approved: "var(--ok, #2e7d32)", rejected: "var(--accent)", blocked: "var(--accent)", "timed out": "var(--warn)", waiting: "var(--warn)" };
+function catchRow(x) {
+  const action = x.program ? `<code>${esc(x.program)}</code>${x.category ? ` <span class="mini">${esc(x.category)}</span>` : ""}` : `<code>${esc(x.tool || "")}</code>`;
+  return `<tr><td class="mini">${esc(x.t.replace("T", " "))}</td><td>${esc(x.agent || "")}</td><td>${action}</td>
+    <td>${esc(x.why || "")}<div class="mini">${esc(x.rule || "")}</div></td>
+    <td style="color:${OUTCOME[x.outcome] || "inherit"};font-weight:600">${esc(x.outcome || "")}</td>
+    <td>${esc(savedText(x.saved)) || '<span class="mini">–</span>'}</td><td class="mini">${x.decide_s !== undefined ? fmtSecs(x.decide_s) : "–"}</td></tr>`;
 }
 
 // Deleting a hosted pilot switches its dashboard off, and Squidbrake fails closed: their agents stop until they remove it

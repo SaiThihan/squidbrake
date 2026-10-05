@@ -1662,7 +1662,8 @@ async def lifespan(app: FastAPI):
         tasks.append(asyncio.create_task(_retention_loop()))
     # usage counts for the pilot programme: does nothing unless this install joined one (squidbrake pilot join)
     tasks.append(asyncio.create_task(pilot.loop(PILOT_DIR, lambda: pilot.usage(
-        engine, events, policy.mode, len(policy.rules), VERSION))))
+        engine, events, policy.mode, len(policy.rules), VERSION,
+        reasons={r["id"]: r.get("reason", "") for r in policy.rules + policy.sequences}))))
     yield
     for t in tasks:
         t.cancel()

@@ -222,3 +222,47 @@ def test_team_request_form(insights):
     for _ in range(5):                                                  # 5 an hour from one address
         insights.post("/v1/team-request", json=ask)
     assert insights.post("/v1/team-request", json=ask).status_code == 429
+
+
+def test_catches_say_what_and_why_never_the_details(gateway):
+    """Held and blocked actions are shared as program + rule + outcome + sizes; never arguments, paths or content."""
+    server, c = gateway
+    h = {"X-Gateway-Key": "k1"}
+    held = c.post("/v1/events", headers=h, json={
+        "name": "Bash", "source": "catch-test", "input": {"command": f"rm -rf {SECRET}-folder"},
+        "metadata": {"effects": [f"Deletes 3 files (1.2 KB) in {SECRET}-folder"]}}).json()
+    assert held["decision"] == "review"
+    c.post(f"/v1/events/{held['event_id']}/reject", headers={"X-Gateway-Key": "k2"}, json={"note": f"no {SECRET}"})
+    c.post("/v1/events", headers=h, json={"name": "Bash", "source": "catch-test", "input": {"command": "rm -rf ~/"}})
+    u = pilot.usage(server.engine, server.events, "enforce", 3, "9.9.9",
+                    reasons={r["id"]: r.get("reason", "") for r in server.policy.rules})
+    mine = [x for x in u["catches"] if x["agent"] == "catch-test"]
+    assert SECRET not in json.dumps(u)       # the folder name, the command and the note are all marked with it
+    rejected = next(x for x in mine if x["outcome"] == "rejected")
+    assert rejected["program"] == "rm" and rejected["category"] == "irreversible" and rejected["saved"] == {"files": 3}
+    assert rejected["why"] and isinstance(rejected["decide_s"], int)
+    blocked = next(x for x in mine if x["outcome"] == "blocked")
+    assert blocked["program"] == "rm" and blocked["category"] == "catastrophic" and "home folder" in blocked["why"]
+
+
+def test_insights_keeps_only_known_catch_fields_and_shows_churn(insights, tmp_path, monkeypatch):
+    admin = {"X-Admin-Key": "admin-test-key"}
+    code = insights.post("/v1/admin/pilots", headers=admin, json={"company": "Catchy"}).json()["code"]
+    path_of = lambda url: "/" + url.split("://", 1)[1].split("/", 1)[1]
+    monkeypatch.setattr(pilot.httpx, "post", lambda url, json, timeout: insights.post(path_of(url), json=json))
+    assert pilot.join(tmp_path, code, "http://localhost", True, "1.0") == 0
+    from datetime import datetime, timezone
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    catch = {"t": today + "T10:00", "agent": "cursor", "tool": "Bash", "program": "git", "category": "irreversible",
+             "rule": "approve-git-push", "why": "Pushing code to a remote", "outcome": "rejected", "decide_s": 42,
+             "saved": {"commits": 3}, "input": {"command": "git push --force " + SECRET}, "command": SECRET}
+    assert pilot.send(tmp_path, {"version": "1.0", "agents": {"cursor": 1}, "days": {today: {"events": 4, "held": 1}},
+                                 "rules_hit": {}, "total_events": 4, "catches": [catch, {"t": "garbage"}]}) is True
+    d = insights.get("/v1/admin/overview", headers=admin).json()
+    p = next(p for p in d["pilots"] if p["code"] == code)
+    assert SECRET not in json.dumps(d)                                           # unknown fields are dropped
+    [x] = p["catches"]
+    assert x["program"] == "git" and x["outcome"] == "rejected" and x["saved"] == {"commits": 3}
+    assert p["stopped"] == 1 and p["saved"] == {"commits": 3} and p["decide_median_s"] == 42
+    assert p["health"] == "active" and p["idle_days"] == 0
+    assert d["scorecard"]["stopped"] >= 1 and d["scorecard"]["saved"].get("commits", 0) >= 3

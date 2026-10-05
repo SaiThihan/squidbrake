@@ -57,6 +57,8 @@ with db() as _c:
         rules_hit TEXT, total_events INTEGER, first_event TEXT);
     CREATE TABLE IF NOT EXISTS days (install_id TEXT NOT NULL, day TEXT NOT NULL, counts TEXT NOT NULL,
         PRIMARY KEY (install_id, day));
+    CREATE TABLE IF NOT EXISTS catches (install_id TEXT NOT NULL, t TEXT NOT NULL, data TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS catches_install ON catches (install_id);
     CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, created_at TEXT NOT NULL, expires_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS team_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL,
@@ -259,7 +261,26 @@ async def ping(request: Request):
                    str(u.get("first_event", ""))[:10], p.install_id))
         for d, cnt in days.items():
             c.execute("INSERT OR REPLACE INTO days (install_id, day, counts) VALUES (?,?,?)", (p.install_id, d, json.dumps(cnt)))
+        if isinstance(u.get("catches"), list):
+            c.execute("DELETE FROM catches WHERE install_id=?", (p.install_id,))
+            c.executemany("INSERT INTO catches (install_id, t, data) VALUES (?,?,?)",
+                          [(p.install_id, x["t"], json.dumps(x)) for x in map(_catch, u["catches"][:60]) if x])
     return {"ok": True}
+
+
+CATCH_TEXT = {"agent": 40, "tool": 60, "program": 30, "category": 20, "rule": 80, "why": 100, "outcome": 20}
+
+
+def _catch(x) -> dict | None:
+    """Only the fields a gateway is meant to send (pilot.py), each short: nothing else is stored."""
+    if not isinstance(x, dict) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}", str(x.get("t", ""))):
+        return None
+    out = {"t": x["t"]} | {k: str(x[k])[:n] for k, n in CATCH_TEXT.items() if x.get(k) not in (None, "")}
+    if isinstance(x.get("decide_s"), int) and 0 <= x["decide_s"] < 10**7:
+        out["decide_s"] = x["decide_s"]
+    saved = x.get("saved") if isinstance(x.get("saved"), dict) else {}
+    out["saved"] = {str(k)[:20]: _int(v) for k, v in list(saved.items())[:5] if re.fullmatch(r"[a-z ]{1,20}", str(k))}
+    return out
 
 
 # --------------------------------------------------------------------------- admin
@@ -298,6 +319,7 @@ def create_pilot(p: PilotIn, request: Request):
 def _forget(c, code: str) -> None:
     ids = [r[0] for r in c.execute("SELECT install_id FROM installs WHERE code=?", (code,))]
     c.executemany("DELETE FROM days WHERE install_id=?", [(i,) for i in ids])
+    c.executemany("DELETE FROM catches WHERE install_id=?", [(i,) for i in ids])
     c.execute("DELETE FROM installs WHERE code=?", (code,))
     c.execute("DELETE FROM pilots WHERE code=?", (code,))
 
@@ -394,6 +416,9 @@ def overview(request: Request):
         pilots = [dict(r) for r in c.execute("SELECT * FROM pilots ORDER BY created_at DESC")]
         installs = [dict(r) for r in c.execute("SELECT * FROM installs")]
         days = c.execute("SELECT install_id, day, counts FROM days WHERE day >= ?", (span[0],)).fetchall()
+        caught: dict[str, list] = {}
+        for iid, data in c.execute("SELECT install_id, data FROM catches"):
+            caught.setdefault(iid, []).append(json.loads(data))
     by_install: dict[str, dict] = {}
     for iid, day, counts in days:
         by_install.setdefault(iid, {})[day] = json.loads(counts)
@@ -430,7 +455,21 @@ def overview(request: Request):
                 stage = "opened link" if p["page_views"] else "link sent"
             elif not ever:
                 stage = "keys taken"
+        mine_caught = sorted((x for i in mine for x in caught.get(i["install_id"], [])), key=lambda x: x["t"], reverse=True)
+        stopped = [x for x in mine_caught if x.get("outcome") in ("rejected", "blocked")]
+        saved: dict[str, int] = {}
+        for x in stopped:
+            for k, v in (x.get("saved") or {}).items():
+                saved[k] = saved.get(k, 0) + v
+        waits = sorted(x["decide_s"] for x in mine_caught if isinstance(x.get("decide_s"), int))
+        last_day = max((d for d in span if daily[d]["events"]), default=None)
+        idle = (today - datetime.fromisoformat(last_day).date()).days if last_day else None
+        prev = sum(daily[d]["events"] for d in span[:7])
+        health = ("not started" if last_day is None else "active" if idle <= 2 else "at risk" if idle <= 6 else "churned")
         out.append({**p, "dashboard": dashboard_url(p["subdomain"]), "keys_waiting": keys_waiting,
+                    "catches": mine_caught[:25], "stopped": len(stopped), "saved": saved,
+                    "decide_median_s": waits[len(waits) // 2] if waits else None, "health": health,
+                    "idle_days": idle, "trend": (None if not prev else round(100 * (week["events"] - prev) / prev)),
                     "link": f"{public_url(request)}/start/{p['code']}", "stage": stage, "installs": len(active),
                     "last_seen": last or None, "versions": sorted({i["version"] for i in active if i["version"]}),
                     "modes": sorted({i["mode"] for i in active if i["mode"]}), "agents": agents,
@@ -456,6 +495,11 @@ def scorecard(pilots: list[dict], week: dict) -> dict:
         "approved": week["approved"], "rejected": week["rejected"],
         # most holds approved means the rules hold things people are fine with: noise that gets Squidbrake switched off
         "approve_rate": round(100 * week["approved"] / decided) if decided else None,
+        "at_risk": sum(1 for p in pilots if p.get("health") == "at risk"),
+        "churned": sum(1 for p in pilots if p.get("health") == "churned"),
+        "stopped": sum(p.get("stopped", 0) for p in pilots),
+        "saved": {k: sum((p.get("saved") or {}).get(k, 0) for p in pilots)
+                  for k in sorted({k for p in pilots for k in (p.get("saved") or {})})},
     }
 
 

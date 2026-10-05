@@ -107,8 +107,11 @@ if (D.hosted && !D.missing) {
       <p>Only if you join the pilot in step 1. We see <b>counts</b>, so we can tell what's useful:</p>
       <ul>
         <li><b>Sent:</b> Squidbrake version, OS, which agents are connected (e.g. "claude-code"), and per day how many actions
-          were allowed, held, approved, rejected or blocked, and which rules fired.</li>
-        <li><b>Never sent:</b> your commands, code, files, prompts, tool inputs or outputs, keys, or anyone's names.
+          were allowed, held, approved, rejected or blocked, and which rules fired. For each action that was held or blocked:
+          the program only (e.g. "rm", "git"), the rule and its reason, what happened, how long a person took to decide,
+          and the size of what it would have changed as numbers (e.g. "3 commits", "1,204 files").</li>
+        <li><b>Never sent:</b> your commands' arguments, file or folder names, code, file contents, prompts, tool inputs or
+          outputs, keys, or anyone's names.
           Your agents' activity stays on your machine.</li>
         <li><b>Stop anytime:</b> <code>squidbrake pilot leave</code>. The code that sends it is open source.</li>
       </ul>
@@ -188,8 +191,8 @@ function hostedPage() {
         <li><b>Your dashboard runs on a server we operate</b> (in India). Every action your agent takes is sent there to be
           checked and recorded: the command or tool, its inputs (which can include the text of an edit) and its result.
           That's what you see and approve in the dashboard, behind your keys.</li>
-        <li><b>We look at counts only</b> (how many actions were held, approved or blocked) to learn what helps,
-          not at what your agents did.</li>
+        <li><b>We look at counts and at what was held or blocked</b> (the program, the rule, what happened, and sizes as
+          numbers, never the arguments, files or content) to learn what helps, not at what your agents worked on.</li>
         <li><b>Working on something sensitive?</b> Use the private setup instead: everything stays on your machine.</li>
         <li>When the pilot ends, or whenever you ask, we delete your dashboard and everything in it.</li>
       </ul>

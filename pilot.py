@@ -6,12 +6,16 @@ by saying yes when `squidbrake connect all` asks (once, default no).
     squidbrake pilot status                    what is shared, where, and when it was last sent
     squidbrake pilot leave                     stop sharing
 
-Nothing is sent unless you join. What is sent, at start and every 6 hours:
+Nothing is sent unless you join. What is sent, at start and every 6 hours (a hosted dashboard: every 2 minutes):
   - the Squidbrake version, operating system, enforce/shadow mode and number of rules
   - the agents connected, by their labels (e.g. "claude-code", "antigravity")
   - per day, for the last 7 days: how many actions were allowed, held, approved, rejected, blocked, timed out or failed
   - which rules blocked or held things (rule ids such as "command:catastrophic_command")
-Never sent: commands, file contents, prompts, tool inputs or outputs, keys, names of people.
+  - for each action held or blocked in the last 7 days: when, which agent, the program only (e.g. "rm", "git"),
+    the rule and its reason, what happened (approved, rejected, blocked, timed out), how long a person took,
+    and the size of what it would have changed, as numbers only (e.g. 3 commits, 1,204 files, 4,312 rows)
+Never sent: commands or their arguments, file or folder names, file contents, prompts, tool inputs or outputs,
+keys, names of people.
 """
 from __future__ import annotations
 
@@ -20,6 +24,7 @@ import json
 import logging
 import os
 import platform
+import re
 import sys
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -50,8 +55,73 @@ def _save(home: Path, cfg: dict) -> None:
     _path(home).write_text(json.dumps(cfg, indent=2), encoding="utf-8")
 
 
-def usage(engine, events, mode: str, rules: int, version: str) -> dict:
-    """Counts only. No inputs, outputs, names of people or anything an agent did beyond its outcome."""
+SIZE = re.compile(r"(\d[\d,]*)\+?\s+(Kubernetes objects?|files?|rows?|commits?|resources?|objects?)\b", re.I)
+WHY = {"catastrophic": "could wipe a home folder, a drive or the system", "irreversible": "can't be undone",
+       "hidden": "runs code that can't be read first"}
+HISTORY_WHY = {"repeat_of_rejected": "asked again after a person said no", "impersonation": "money after a look-alike sender",
+               "payment_request_in_message": "money a message asked for", "duplicate_change": "the same change again",
+               "untrusted_destination": "sends to an address found only in outside content"}
+
+
+def _program(name: str, raw_input: str | None) -> tuple[str | None, str | None]:
+    """(program, category) of a shell command, e.g. ("rm", "irreversible"): never its arguments."""
+    try:
+        import commands
+        cmd = commands.command_of(json.loads(raw_input)) if raw_input else None
+        if not cmd:
+            return None, None
+        reading = commands.read(cmd)
+        worst = reading.worst()
+        prog = re.sub(r"[^a-z0-9._+-]", "", (worst.program if worst else "").lower())[:30] or None
+        return prog, reading.kind
+    except Exception:
+        return None, None
+
+
+def catches(conn, events, since: str, reasons: dict) -> list[dict]:
+    """What was held or blocked, without what it was about: program, rule, outcome, and sizes as numbers."""
+    rows = conn.execute(select(
+        events.c.created_at, events.c.decided_at, events.c.source, events.c.client, events.c.name, events.c.input,
+        events.c.rule_id, events.c.decision, events.c.decided_by, events.c.approval_deadline, events.c.metadata,
+    ).where(events.c.created_at >= since, events.c.approval_deadline.isnot(None) |
+            ((events.c.status == "denied") & events.c.decided_by.is_(None))
+            ).order_by(events.c.created_at.desc()).limit(60)).all()
+    out = []
+    for r in rows:
+        prog, kind = _program(r.name or "", r.input)
+        rule = (r.rule_id or "")[:80]
+        why = reasons.get(rule) or (HISTORY_WHY.get(rule.split(":", 1)[1]) if rule.startswith(("history:", "taint:")) else None) \
+            or WHY.get(kind or "") or ""
+        if r.approval_deadline is None:
+            outcome = "blocked"
+        else:
+            outcome = {None: "waiting", "timeout": "timed out"}.get(r.decided_by) or ("approved" if r.decision == "allow" else "rejected")
+        saved: dict[str, int] = {}
+        try:
+            for line in (json.loads(r.metadata or "{}").get("effects") or []):
+                for n, unit in SIZE.findall(str(line)):
+                    u = unit.lower().replace("kubernetes ", "")
+                    u = u if u.endswith("s") else u + "s"
+                    saved[u] = saved.get(u, 0) + int(n.replace(",", ""))
+        except (ValueError, AttributeError):
+            pass
+        decide_s = None
+        if r.decided_at and r.decided_by not in (None, "timeout"):
+            try:
+                decide_s = int((datetime.fromisoformat(r.decided_at.replace("Z", "+00:00"))
+                                - datetime.fromisoformat(r.created_at.replace("Z", "+00:00"))).total_seconds())
+            except ValueError:
+                pass
+        tool = re.sub(r"[^A-Za-z0-9_.:-]", "", r.name or "")[:60]
+        out.append({"t": (r.created_at or "")[:16], "agent": str(r.source or r.client or "")[:40], "tool": tool,
+                    "program": prog, "category": kind if prog else None, "rule": rule, "why": str(why)[:100],
+                    "outcome": outcome, "decide_s": decide_s, "saved": saved})
+    return out
+
+
+def usage(engine, events, mode: str, rules: int, version: str, reasons: dict | None = None) -> dict:
+    """Counts, and what was held or blocked as program + rule + outcome + sizes (see the top of this file).
+    No inputs, outputs, arguments, file names, names of people."""
     since = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
     day = func.substr(events.c.created_at, 1, 10)
     human = events.c.decided_by.isnot(None) & (events.c.decided_by != "timeout")
@@ -80,9 +150,11 @@ def usage(engine, events, mode: str, rules: int, version: str) -> dict:
             (events.c.status == "denied") | events.c.approval_deadline.isnot(None),
         ).group_by(events.c.rule_id).order_by(func.count().desc()).limit(15)).all())
         total, first = conn.execute(select(func.count(), func.min(events.c.created_at)).select_from(events)).one()
+        held = catches(conn, events, since, reasons or {})
     return {"version": version, "os": f"{platform.system()} {platform.release()}", "python": platform.python_version(),
             "mode": mode, "rules": rules, "agents": {str(k): v for k, v in agents.items() if k},
-            "days": days, "rules_hit": rules_hit, "total_events": total, "first_event": (first or "")[:10]}
+            "days": days, "rules_hit": rules_hit, "total_events": total, "first_event": (first or "")[:10],
+            "catches": held}
 
 
 def _post(server: str, path: str, body: dict) -> dict:
