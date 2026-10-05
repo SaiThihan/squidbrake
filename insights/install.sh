@@ -5,24 +5,36 @@
 set -e
 printf '\nInstalling Squidbrake (brakes for AI agents)...\n\n'
 
-PY=$(command -v python3 || command -v python || true)
-if [ -z "$PY" ] || ! "$PY" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)'; then
-  echo "Python 3.10 or newer is needed: https://www.python.org/downloads/ (macOS: brew install python)"
-  exit 1
-fi
+fail() { printf '\n  [X] %s\n\n' "$1"; exit 1; }
+new_enough() { [ -n "$1" ] && "$1" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; }
 
+# A Python 3.10+: macOS ships 3.9, so look for a newer one before giving up
+PY=""
+for c in python3.13 python3.12 python3.11 python3.10 python3 python \
+         /opt/homebrew/bin/python3 /usr/local/bin/python3; do
+  p=$(command -v "$c" 2>/dev/null || true)
+  if new_enough "$p"; then PY="$p"; break; fi
+done
 if command -v pipx >/dev/null 2>&1; then
   PIPX="pipx"
 elif command -v brew >/dev/null 2>&1; then
-  brew install pipx >/dev/null && PIPX="pipx"
-else
+  echo "Installing pipx with Homebrew (it brings its own Python)..."
+  brew install pipx >/dev/null || fail "Homebrew couldn't install pipx. Run: brew install pipx  and then this command again."
+  PIPX="pipx"
+elif [ -n "$PY" ]; then
   "$PY" -m pip install --user --quiet pipx 2>/dev/null || "$PY" -m pip install --user --quiet --break-system-packages pipx
   PIPX="$PY -m pipx"
+else
+  fail "Squidbrake needs Python 3.10 or newer, and this computer has $(python3 --version 2>/dev/null || echo 'no Python').
+      macOS: install Homebrew (https://brew.sh), then run this command again; it does the rest.
+      Or install Python from https://www.python.org/downloads/ and run this command again."
 fi
-(cd /tmp && $PIPX install --force squidbrake && $PIPX ensurepath >/dev/null 2>&1 || true)
+(cd /tmp && $PIPX install --force squidbrake ${PY:+--python "$PY"}) || fail "Installing Squidbrake failed (see the lines above)."
+$PIPX ensurepath >/dev/null 2>&1 || true
 
 SB="$HOME/.local/bin/squidbrake"
-[ -x "$SB" ] || SB="squidbrake"
+[ -x "$SB" ] || SB=$(command -v squidbrake || true)
+[ -n "$SB" ] && "$SB" --version >/dev/null 2>&1 || fail "Squidbrake didn't install. Send the lines above to whoever sent you this link."
 printf '\nInstalled: %s\n' "$("$SB" --version)"
 
 if [ -n "$SQUIDBRAKE_URL" ] && [ -n "$SQUIDBRAKE_AGENT_KEY" ]; then
@@ -41,7 +53,7 @@ if [ -n "$SQUIDBRAKE_URL" ] && [ -n "$SQUIDBRAKE_AGENT_KEY" ]; then
   "$SB" connect agents --agent all --url "$SQUIDBRAKE_URL" --key "$SQUIDBRAKE_AGENT_KEY" --yes | sed 's/^/  /'
   # ... and its own MCP servers (GitHub, Stripe, databases...) go through it too
   "$SB" connect guard --agent all --url "$SQUIDBRAKE_URL" --key "$SQUIDBRAKE_AGENT_KEY" --yes | sed 's/^/  /'
-  printf '\nLast step: close and reopen your agents (Claude Code, Cursor, ...), then work as usual.\nYour dashboard: %s/dashboard\n\n' "$SQUIDBRAKE_URL"
+  printf '\nLast step: quit and reopen your agents (Cursor: Cmd+Q, then open it again), then work as usual.\nYour dashboard: %s/dashboard\nTo use the squidbrake command yourself (squidbrake connect status), open a new terminal window first.\n\n' "$SQUIDBRAKE_URL"
   exit 0
 fi
 
