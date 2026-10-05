@@ -30,6 +30,10 @@ try:  # what a command will change, and an undo for what it destroys (both best 
     import undo
 except Exception:  # pragma: no cover
     effects = runs = undo = None
+try:
+    import hooklog   # which agent ran the hook and when, for `squidbrake doctor`
+except Exception:  # pragma: no cover
+    hooklog = None
 
 AGENTS = ("cursor", "gemini-cli", "codex", "vscode", "antigravity")
 
@@ -186,6 +190,8 @@ def main() -> None:
         ev = json.load(sys.stdin)
     except ValueError:
         answer(agent, True)
+    if hooklog is not None:
+        hooklog.record(agent, str(ev.get("hook_event_name") or (ev.get("toolCall") or {}).get("name") or ev.get("tool_name") or ""))
     action, session = parse(agent, ev)
     if action is None:
         answer(agent, True)

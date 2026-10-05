@@ -5,6 +5,7 @@ The `squidbrake` command (installed with pip):
   squidbrake connect all             connect every AI agent on this computer (same as: python connect.py ...)
   squidbrake connect claude-code     connect one agent
   squidbrake connect status          which agents are covered (and whether Codex has trusted the hook)
+  squidbrake doctor                  check everything end to end, and say what to fix
   squidbrake hook                    the Claude Code hook, used by the Claude Code plugin (plugin/)
   squidbrake agent-hook AGENT        the hook for cursor, codex, gemini-cli, vscode, antigravity
   squidbrake lockdown --url URL      policy files IT pushes to every machine so agents can't skip the gateway
@@ -36,6 +37,10 @@ def main() -> int:
     if argv[:1] in (["-V"], ["--version"]):
         from squidbrake import __version__
         print(f"squidbrake {__version__}")
+        return 0
+    if argv[:1] == ["doctor"]:     # everything a person would check by hand, with what to fix
+        import connect
+        connect.main(["doctor", *argv[1:]])
         return 0
     if argv[:1] == ["connect"]:
         import connect

@@ -32,6 +32,10 @@ try:  # what a command will change, and an undo for what it destroys (both best 
     import undo
 except Exception:  # pragma: no cover
     commands = effects = runs = undo = None
+try:
+    import hooklog   # which agent ran the hook and when, for `squidbrake doctor`
+except Exception:  # pragma: no cover
+    hooklog = None
 
 def _arg(flag: str, env: str, default: str) -> str:
     # Claude Code hook config has no env field, so connect.py passes settings as arguments.
@@ -182,6 +186,8 @@ def main() -> None:
         ev = json.load(sys.stdin)
     except ValueError:
         sys.exit(0)
+    if hooklog is not None:
+        hooklog.record("cursor-via-claude-code" if ev.get("cursor_version") else "claude-code", str(ev.get("hook_event_name") or ""))
     if str(ev.get("tool_name", "")).startswith(SKIP_PREFIXES):
         sys.exit(0)
     if ev.get("cursor_version") and _cursor_has_own_hook():

@@ -5,6 +5,7 @@ Connect an AI agent to Squidbrake in one command.
   python connect.py all                    every agent on this computer at once: Claude Code, Cursor, Codex,
                                            Gemini CLI, VS Code, Antigravity, and the MCP servers they use (--remove undoes it)
   python connect.py status                 which agents go through Squidbrake, and whether each will run the hook
+  python connect.py doctor                 check everything end to end and say what to fix (squidbrake doctor)
                                            (Codex runs a new hook only after you trust it in /hooks)
   python connect.py claude-code            Claude Code: every tool call goes through the gateway (hook)
                                            + database tools (MCP)
@@ -600,6 +601,213 @@ def status(args) -> int:
     return 1 if problems else 0
 
 
+# --------------------------------------------------------------------------- doctor: is it all really working?
+
+DOCTOR_COMMAND = "echo squidbrake doctor check"     # read-only: allowed without anyone approving
+DOCTOR_EVENTS = {
+    "claude-code": {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": DOCTOR_COMMAND},
+                    "session_id": "squidbrake-doctor"},
+    "cursor": {"hook_event_name": "beforeShellExecution", "command": DOCTOR_COMMAND, "conversation_id": "squidbrake-doctor"},
+    "antigravity": {"toolCall": {"name": "run_command", "args": {"CommandLine": DOCTOR_COMMAND}},
+                    "conversationId": "squidbrake-doctor"},
+}
+RESTART = {"cursor": "Quit Cursor completely (Cmd+Q on a Mac, File > Exit on Windows) and open it again",
+           "claude-code": "Close every Claude Code window and start it again",
+           "codex": "Quit Codex and start it again", "gemini-cli": "Quit Gemini CLI and start it again",
+           "vscode": "Quit VS Code completely and open it again", "antigravity": "Quit Antigravity and open it again"}
+
+
+def _hook_commands(data) -> list[str]:
+    """Every Squidbrake hook command in an agent's config, wherever that agent nests it."""
+    found = []
+    if isinstance(data, dict):
+        for k, v in data.items():
+            if k == "command" and isinstance(v, str) and re.search(r"agent_hook\.py|claude_hook\.py|squidbrake\S* (agent-)?hook", v):
+                found.append(v)
+            else:
+                found += _hook_commands(v)
+    elif isinstance(data, list):
+        for v in data:
+            found += _hook_commands(v)
+    return list(dict.fromkeys(found))
+
+
+def _run_hook(cmd: str, event: dict) -> tuple[bool, str]:
+    """Run the hook exactly as the agent would, with a harmless command. -> (allowed, what it said)"""
+    env = {**os.environ, "SQUIDBRAKE_DOCTOR": "1"}
+    try:
+        p = subprocess.run(cmd, shell=True, input=json.dumps({**event, "cwd": str(Path.home())}), capture_output=True,
+                           text=True, timeout=45, env=env, cwd=str(Path.home()))
+    except (OSError, subprocess.SubprocessError) as e:
+        return False, str(e)
+    out = (p.stdout or "") + (p.stderr or "")
+    denied = re.search(r'"(permission|decision|permissionDecision)"\s*:\s*"deny"', p.stdout or "")
+    if p.returncode != 0 or denied:
+        m = re.search(r'"(?:user_message|reason|permissionDecisionReason)"\s*:\s*"([^"]+)"', out)
+        return False, (m.group(1) if m else out.strip()[-300:] or f"exit code {p.returncode}")
+    return True, ""
+
+
+def _cursor_version() -> str | None:
+    import plistlib
+    for app in (Path("/Applications/Cursor.app"), Path.home() / "Applications" / "Cursor.app"):
+        try:
+            return plistlib.loads((app / "Contents" / "Info.plist").read_bytes()).get("CFBundleShortVersionString")
+        except (OSError, ValueError):
+            pass
+    pkg = Path(os.getenv("LOCALAPPDATA", "")) / "Programs" / "cursor" / "resources" / "app" / "package.json"
+    try:
+        return json.loads(pkg.read_text(encoding="utf-8")).get("version")
+    except (OSError, ValueError):
+        return None
+
+
+def _cursor_hook_errors() -> list[str]:
+    """The last errors in Cursor's own 'Hooks' log, if it keeps one on disk."""
+    roots = [Path.home() / "Library" / "Application Support" / "Cursor" / "logs",
+             Path(os.getenv("APPDATA", "")) / "Cursor" / "logs", Path.home() / ".config" / "Cursor" / "logs"]
+    for root in roots:
+        try:
+            sessions = sorted((d for d in root.iterdir() if d.is_dir()), key=lambda d: d.stat().st_mtime)[-2:]
+        except OSError:
+            continue
+        logs = [f for s in sessions for f in s.rglob("*.log") if "hook" in f.name.lower()]
+        for f in sorted(logs, key=lambda f: f.stat().st_mtime, reverse=True)[:1]:
+            lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
+            return [l.strip()[:200] for l in lines if re.search(r"error|fail|invalid|not found", l, re.I)][-5:]
+    return []
+
+
+def doctor(args) -> int:
+    """Everything a person would otherwise check by hand, in one go, with what to do about each problem."""
+    from datetime import timedelta
+
+    import httpx
+    import hooklog
+    bad = warn = 0
+
+    def say(mark, text, fix=None):
+        nonlocal bad, warn
+        bad += mark == "X"
+        warn += mark == "!"
+        print(f"  [{mark if mark != 'OK' else 'OK'}] {text}")
+        if fix:
+            print(f"       -> {fix}")
+
+    print("\nSquidbrake doctor\n")
+    try:
+        from squidbrake import __version__ as mine
+    except Exception:
+        try:
+            from importlib.metadata import version as _v
+            mine = _v("squidbrake")
+        except Exception:
+            mine = "?"
+    try:
+        latest = httpx.get("https://pypi.org/pypi/squidbrake/json", timeout=6).json()["info"]["version"]
+    except Exception:
+        latest = None
+    if latest and mine != "?" and tuple(int(x) for x in re.findall(r"\d+", mine)[:3]) < tuple(int(x) for x in re.findall(r"\d+", latest)[:3]):
+        say("!", f"Squidbrake {mine} (latest is {latest})", "run the install command from your start page again to update")
+    else:
+        say("OK", f"Squidbrake {mine}")
+
+    hooked = _hooked_gateway()
+    url = args.url or (hooked[0] if hooked else "http://localhost:8080")
+    key = args.key or (hooked[1] if hooked and url == hooked[0] else None)
+    local = url.startswith(("http://localhost", "http://127.0.0.1"))
+    try:
+        up = httpx.get(f"{url}/health", timeout=8).status_code == 200
+    except Exception:
+        up = False
+    if up:
+        say("OK", f"Dashboard answers: {url}")
+    else:
+        say("X", f"Dashboard doesn't answer: {url}",
+            "start it with: squidbrake" if local else "it may have been deleted; ask whoever sent you the link for a new one")
+    if up and key:
+        try:
+            ok = httpx.get(f"{url}/v1/me", headers={"X-Gateway-Key": key}, timeout=8).status_code == 200
+        except Exception:
+            ok = None
+        if ok is False:
+            say("X", "The agents' key is rejected by the dashboard",
+                "run the install command from your start page again, with your current AGENT key")
+        elif ok:
+            say("OK", "The agents' key works")
+
+    agents = {}
+    claude = settings_path(None)
+    if claude.exists() or (Path.home() / ".claude").exists() or shutil.which("claude"):
+        agents["claude-code"] = claude
+    for name, t in hook_agents().items():
+        if t["present"]:
+            agents[name] = t["file"]
+    if not agents:
+        say("X", "No coding agent found on this computer (Claude Code, Cursor, Codex, Gemini CLI, VS Code, Antigravity)")
+    for name, f in agents.items():
+        try:
+            cmds = _hook_commands(json.loads(f.read_text(encoding="utf-8"))) if f.exists() else []
+        except (OSError, ValueError):
+            cmds = []
+        if not cmds:
+            say("X", f"{name}: not connected", "run the install command from your start page again (or: squidbrake connect all)")
+            continue
+        exe = cmds[0].strip()
+        exe = exe[1:exe.index('"', 1)] if exe.startswith('"') else exe.split()[0]
+        if not Path(exe).exists() and not shutil.which(exe):
+            say("X", f"{name}: its hook points to a Squidbrake that isn't installed any more ({exe})",
+                "run the install command from your start page again")
+            continue
+        allowed, said = _run_hook(cmds[0], DOCTOR_EVENTS.get(name, {"hook_event_name": "PreToolUse", "tool_name": "Bash",
+                                                                      "tool_input": {"command": DOCTOR_COMMAND},
+                                                                      "session_id": "squidbrake-doctor"}))
+        if not allowed:
+            say("X", f"{name}: the hook runs but answered: {said[:240]}",
+                "fix the dashboard or key line above, then run: squidbrake doctor")
+            continue
+        if name == "codex" and codex_hook_trust() != "trusted":
+            say("X", "codex: hook works, but Codex hasn't trusted it yet, so Codex skips it",
+                "open Codex, type /hooks, and trust the Squidbrake hook")
+            continue
+        last = hooklog.last_call(name) or (hooklog.last_call("cursor-via-claude-code") if name == "cursor" else None)
+        since = datetime_from_mtime(f)
+        if last and last >= since - timedelta(seconds=2):   # timestamps and file times differ slightly
+            say("OK", f"{name}: connected, and it used the hook {ago(last)}")
+        elif args.quick:
+            say("OK", f"{name}: connected; the hook works", RESTART.get(name, f"restart {name}") + ", then use it as usual")
+        else:
+            extra = ""
+            if name == "cursor":
+                v = _cursor_version()
+                extra = f" (Cursor {v})" if v else ""
+            say("!", f"{name}: connected and the hook works, but {name} hasn't run it since it was connected{extra}",
+                RESTART.get(name, f"restart {name}") + ", ask its agent to run any terminal command (like: git status), "
+                "then run: squidbrake doctor")
+            if name == "cursor":
+                for line in _cursor_hook_errors():
+                    print(f"       Cursor's hooks log: {line}")
+    print()
+    if bad:
+        print("Fix the [X] lines above, then run: squidbrake doctor\n")
+    elif warn:
+        print("Almost there: do what the [!] lines say, then run: squidbrake doctor\n")
+    else:
+        print("Everything works.\n")
+    return 1 if bad else 0
+
+
+def datetime_from_mtime(f: Path):
+    from datetime import datetime, timezone
+    return datetime.fromtimestamp(f.stat().st_mtime, timezone.utc)
+
+
+def ago(t) -> str:
+    from datetime import datetime, timezone
+    s = int((datetime.now(timezone.utc) - t).total_seconds())
+    return "just now" if s < 60 else f"{s // 60} min ago" if s < 3600 else f"{s // 3600} h ago" if s < 86400 else f"{s // 86400} days ago"
+
+
 # --------------------------------------------------------------------------- everything at once
 
 def connect_all(args) -> None:
@@ -655,13 +863,17 @@ def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="squidbrake connect" if os.getenv("SQUIDBRAKE_CLI") else None,
                                 description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
-    for name in ("all", "status", "claude-code", "mcp", "wrap", "guard", "agents"):
+    for name in ("all", "status", "doctor", "claude-code", "mcp", "wrap", "guard", "agents"):
         s = sub.add_parser(name)
-        s.add_argument("--url", default=None if name == "status" else "http://localhost:8080",
-                       help="the gateway's address" + (" (default: the one your agents' hooks use)" if name == "status" else ""))
+        found = name in ("status", "doctor")   # these find the gateway the hooks use
+        s.add_argument("--url", default=None if found else "http://localhost:8080",
+                       help="the gateway's address" + (" (default: the one your agents' hooks use)" if found else ""))
         s.add_argument("--key")
         if name == "status":
             pass
+        elif name == "doctor":
+            s.add_argument("--quick", action="store_true", help="right after installing: don't expect the agents "
+                                                                 "to have used the hook yet")
         elif name == "all":
             s.add_argument("--remove", action="store_true", help="undo it for every agent")
             s.add_argument("--yes", action="store_true")
@@ -698,6 +910,8 @@ def main(argv: list[str] | None = None) -> None:
         args.agent = args.name
     if args.cmd == "status":
         sys.exit(status(args))
+    if args.cmd == "doctor":
+        sys.exit(doctor(args))
     {"all": connect_all, "claude-code": claude_code, "mcp": mcp, "wrap": wrap, "guard": guard, "agents": agents}[args.cmd](args)
 
 
