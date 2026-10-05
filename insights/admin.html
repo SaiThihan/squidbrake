@@ -99,6 +99,9 @@ td.num { font-variant-numeric:tabular-nums; }
 .spark i { display:block; width:6px; background:var(--ink); opacity:.55; border-radius:1px; min-height:1px; }
 
 tr.catches > td { padding:0 14px 12px; }
+#stopped tr.hold { display:none; }
+#stopped.show-all tr.hold { display:table-row; }
+#stopped.show-all .stopped-none { display:none; }
 tr.catches summary { cursor:pointer; font-size:12.5px; color:var(--muted); padding:2px 0 6px; list-style:none; }
 tr.catches summary::before { content:"\25B8"; display:inline-block; width:14px; transition:transform .15s; }
 tr.catches details[open] summary::before { transform:rotate(90deg); }
@@ -227,7 +230,7 @@ async function load() {
   const w = d.week;
   app.innerHTML = `
     <div class="top"><div class="in"><div class="brand">Squid<b>brake</b> <small>Pilots</small></div>
-      <nav><a href="#week">This week</a><a href="#traction">Traction</a><a href="#pilots">Pilots</a><a href="#requests">Requests</a><a href="#new">New pilot</a></nav>
+      <nav><a href="#week">This week</a><a href="#stopped">Stopped</a><a href="#traction">Traction</a><a href="#pilots">Pilots</a><a href="#requests">Requests</a><a href="#new">New pilot</a></nav>
       <span class="spacer"></span>
       <button class="btn ghost" id="refresh">Refresh</button><button class="btn ghost" id="pw">${me.has_password ? "Password" : "Set password"}</button>
       <button class="btn ghost" id="logout">Sign out</button></div></div>
@@ -247,6 +250,7 @@ async function load() {
         ${stat("At risk · churned", `${d.scorecard.at_risk}<small>·</small> ${d.scorecard.churned}`, "3+ / 7+ days without activity", d.scorecard.at_risk + d.scorecard.churned > 0)}
         ${stat("Stopped", d.scorecard.stopped, savedText(d.scorecard.saved) ? "saved " + savedText(d.scorecard.saved) : "rejected or blocked")}
       </div></section>
+    ${stoppedPanel(d.pilots)}
     ${tractionPanel(inv)}
     <section id="pilots"><div class="sec-h"><h2>Pilots</h2><span class="sub">Hosted dashboards report every 2 minutes</span>
         <div class="act"><a class="btn" href="#new">New pilot</a></div></div>
@@ -280,6 +284,9 @@ async function load() {
     await api(`/v1/admin/pilots/${encodeURIComponent(b.dataset.del)}`, { method: "DELETE" }); load();
   });
   document.querySelectorAll("[data-copy]").forEach((b) => b.onclick = () => copy(b.dataset.copy, b));
+  document.getElementById("allholds")?.addEventListener("change", (e) => {
+    document.getElementById("stopped").classList.toggle("show-all", e.target.checked);
+  });
   document.querySelectorAll("[data-mrr]").forEach((b) => b.onclick = async () => {
     const v = prompt(`Monthly revenue from ${b.dataset.name}, in dollars (0 = not paying):`, b.dataset.mrr || "");
     if (v === null || !/^\d+$/.test(v.trim())) return;
@@ -412,6 +419,31 @@ function healthBadge(p) {
 }
 const savedText = (s) => Object.entries(s || {}).map(([k, v]) => `${Number(v).toLocaleString()} ${v === 1 ? k.replace(/s$/, "") : k}`).join(", ");
 const fmtSecs = (s) => s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s / 60)} min` : `${Math.round(s / 3600)} h`;
+// Every pilot's held or blocked actions in one list, newest first: what the agent tried, why it stopped, what it would have changed
+const STOPPED = ["rejected", "blocked"];
+function stoppedPanel(pilots) {
+  const all = pilots.flatMap((p) => (p.catches || []).map((x) => ({ ...x, company: p.company })))
+    .sort((a, b) => (b.t || "").localeCompare(a.t || ""));
+  const stopped = all.filter((x) => STOPPED.includes(x.outcome));
+  const saved = {};
+  for (const x of stopped) for (const [k, v] of Object.entries(x.saved || {})) saved[k] = (saved[k] || 0) + Number(v);
+  const rows = all.map((x) => `<tr${STOPPED.includes(x.outcome) ? "" : ' class="hold"'}>
+    <td class="sub" style="white-space:nowrap">${esc((x.t || "").replace("T", " "))}</td>
+    <td><b>${esc(x.company)}</b><div class="mini">${esc(x.agent || "")}</div></td>
+    <td>${x.program ? `<code>${esc(x.program)}</code>${x.category ? `<div class="mini">${esc(x.category)}</div>` : ""}` : `<code>${esc(x.tool || "")}</code>`}</td>
+    <td>${esc(x.why || "")}<div class="mini">${esc(x.rule || "")}</div></td>
+    <td class="${OUTCOME[x.outcome] || ""}" style="font-weight:500">${esc(x.outcome || "")}${x.decide_s !== undefined && x.decide_s !== null ? `<div class="mini">in ${fmtSecs(x.decide_s)}</div>` : ""}</td>
+    <td>${esc(savedText(x.saved)) || '<span class="mini">–</span>'}</td></tr>`).join("");
+  const sub = stopped.length ? `${stopped.length} stopped${savedText(saved) ? " · would have changed " + savedText(saved) : ""}` : "Rejected or blocked actions, from every pilot";
+  return `<section id="stopped"><div class="sec-h"><h2>Stopped</h2><span class="sub">${esc(sub)}</span>
+      ${all.length > stopped.length ? `<div class="act"><label class="sub"><input type="checkbox" id="allholds"> Show approved and waiting holds too (${all.length - stopped.length})</label></div>` : ""}</div>
+    ${all.length ? `<div class="table-wrap"><table><thead><tr><th>When</th><th>Company</th><th>Action</th><th>Why it stopped</th><th>Outcome</th><th>Would have changed</th></tr></thead>
+      <tbody>${rows}</tbody></table>${stopped.length ? "" : `<div class="empty stopped-none">Nothing rejected or blocked yet.</div>`}</div>
+      <p class="foot" style="margin-top:8px">The program only, never its arguments, files or prompts. "Would have changed" is counted on their machine before the action runs.</p>`
+      : `<div class="surface empty">Nothing held or blocked yet. Shows up here within 2 minutes of a block or a no.</div>`}
+  </section>`;
+}
+
 const OUTCOME = { approved: "o-approved", rejected: "o-rejected", blocked: "o-blocked", "timed out": "o-timed", waiting: "o-waiting" };
 function catchRow(x) {
   const action = x.program ? `<code>${esc(x.program)}</code>${x.category ? ` <span class="sub">${esc(x.category)}</span>` : ""}` : `<code>${esc(x.tool || "")}</code>`;
