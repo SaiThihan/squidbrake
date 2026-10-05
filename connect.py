@@ -34,6 +34,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -551,11 +552,12 @@ def _hooked_gateway() -> tuple[str, str] | None:
     files = [settings_path(None)] + [t["file"] for t in hook_agents().values()]
     for f in files:
         try:
-            text = f.read_text(encoding="utf-8", errors="replace") if f.exists() else ""
-        except OSError:
+            cmds = _hook_commands(json.loads(f.read_text(encoding="utf-8", errors="replace"))) if f.exists() else []
+        except (OSError, ValueError):
             continue
-        if m := re.search(r"--url\s+(\S+?)\s+--key\s+(gw_[A-Za-z0-9_\-]+)", text):
-            return m.group(1).strip('"\''), m.group(2)
+        for c in cmds:
+            if m := re.search(r"--url\s+\"?(\S+?)\"?\s+--key\s+\"?(gw_[A-Za-z0-9_\-]+)", c):
+                return m.group(1), m.group(2)
     return None
 
 
@@ -617,14 +619,22 @@ RESTART = {"cursor": "Quit Cursor completely (Cmd+Q on a Mac, File > Exit on Win
            "vscode": "Quit VS Code completely and open it again", "antigravity": "Quit Antigravity and open it again"}
 
 
+def _join(parts: list[str]) -> str:
+    return subprocess.list2cmdline(parts) if os.name == "nt" else " ".join(shlex.quote(p) for p in parts)
+
+
 def _hook_commands(data) -> list[str]:
-    """Every Squidbrake hook command in an agent's config, wherever that agent nests it."""
+    """Every Squidbrake hook command in an agent's config, wherever that agent nests it, as one command line
+    (Claude Code keeps the program in "command" and its arguments in "args")."""
     found = []
     if isinstance(data, dict):
+        cmd, args = data.get("command"), data.get("args")
+        if isinstance(cmd, str):
+            full = _join([cmd, *map(str, args)]) if isinstance(args, list) and args else cmd
+            if re.search(r"agent_hook\.py|claude_hook\.py|squidbrake\S* (agent-)?hook", full):
+                found.append(full)
         for k, v in data.items():
-            if k == "command" and isinstance(v, str) and re.search(r"agent_hook\.py|claude_hook\.py|squidbrake\S* (agent-)?hook", v):
-                found.append(v)
-            else:
+            if k not in ("command", "args"):
                 found += _hook_commands(v)
     elif isinstance(data, list):
         for v in data:
@@ -662,8 +672,9 @@ def _cursor_version() -> str | None:
         return None
 
 
-def _cursor_hook_errors() -> list[str]:
-    """The last errors in Cursor's own 'Hooks' log, if it keeps one on disk."""
+def _cursor_hooks_log() -> dict:
+    """What Cursor's own hooks log (on disk) says: did it load Squidbrake's hook, has it run it, real errors.
+    -> {"loaded": "beforeShellExecution, beforeReadFile" | "" | None, "ran": bool, "errors": [...]}"""
     roots = [Path.home() / "Library" / "Application Support" / "Cursor" / "logs",
              Path(os.getenv("APPDATA", "")) / "Cursor" / "logs", Path.home() / ".config" / "Cursor" / "logs"]
     for root in roots:
@@ -671,11 +682,21 @@ def _cursor_hook_errors() -> list[str]:
             sessions = sorted((d for d in root.iterdir() if d.is_dir()), key=lambda d: d.stat().st_mtime)[-2:]
         except OSError:
             continue
-        logs = [f for s in sessions for f in s.rglob("*.log") if "hook" in f.name.lower()]
-        for f in sorted(logs, key=lambda f: f.stat().st_mtime, reverse=True)[:1]:
-            lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
-            return [l.strip()[:200] for l in lines if re.search(r"error|fail|invalid|not found", l, re.I)][-5:]
-    return []
+        logs = sorted((f for s in sessions for f in s.rglob("*.log") if "hook" in f.name.lower()),
+                      key=lambda f: f.stat().st_mtime, reverse=True)
+        if not logs:
+            continue
+        lines = logs[0].read_text(encoding="utf-8", errors="replace").splitlines()
+        loaded = None
+        for l in lines:
+            if m := re.search(r"Loaded (\d+) user hook\(s\) for steps:\s*(.*)$", l):
+                loaded = m.group(2).strip() if int(m.group(1)) else ""
+        ran = any(re.search(r"Hook step requested: (beforeShellExecution|beforeReadFile)", l) for l in lines)
+        # not real problems: a project without its own hooks file, and Claude Code events Cursor doesn't know
+        noise = re.compile(r"Failed to parse project hooks configuration|No project hooks|\[Claude\] Unknown", re.I)
+        errors = [l.strip()[:200] for l in lines if re.search(r"error|fail|invalid", l, re.I) and not noise.search(l)]
+        return {"loaded": loaded, "ran": ran, "errors": errors[-3:]}
+    return {"loaded": None, "ran": False, "errors": []}
 
 
 def doctor(args) -> int:
@@ -776,17 +797,23 @@ def doctor(args) -> int:
             say("OK", f"{name}: connected, and it used the hook {ago(last)}")
         elif args.quick:
             say("OK", f"{name}: connected; the hook works", RESTART.get(name, f"restart {name}") + ", then use it as usual")
+        elif name == "cursor" and (log := _cursor_hooks_log())["loaded"]:
+            # Cursor says it loaded the hook: it just hasn't had a terminal command or file read to check yet
+            say("!", f"cursor: connected, and Cursor has loaded the hook ({log['loaded']}), but its agent hasn't "
+                     "run a terminal command since",
+                "in Cursor's Agent chat, ask it to run any terminal command (like: git status), then run: squidbrake doctor")
         else:
-            extra = ""
+            extra, log = "", (_cursor_hooks_log() if name == "cursor" else None)
             if name == "cursor":
                 v = _cursor_version()
                 extra = f" (Cursor {v})" if v else ""
+                if log["loaded"] == "":
+                    extra += "; Cursor's log says it loaded no user hooks"
             say("!", f"{name}: connected and the hook works, but {name} hasn't run it since it was connected{extra}",
                 RESTART.get(name, f"restart {name}") + ", ask its agent to run any terminal command (like: git status), "
                 "then run: squidbrake doctor")
-            if name == "cursor":
-                for line in _cursor_hook_errors():
-                    print(f"       Cursor's hooks log: {line}")
+            for line in (log or {}).get("errors", []):
+                print(f"       Cursor's hooks log: {line}")
     print()
     if bad:
         print("Fix the [X] lines above, then run: squidbrake doctor\n")

@@ -93,10 +93,12 @@ if [ -n "${SQUIDBRAKE_URL:-}" ] && [ -n "${SQUIDBRAKE_AGENT_KEY:-}" ]; then
   "$SB" connect agents --agent all --url "$SQUIDBRAKE_URL" --key "$SQUIDBRAKE_AGENT_KEY" --yes 2>&1 | sed 's/^/  /'
   # ... and its own MCP servers (GitHub, Stripe, databases...) go through it too
   "$SB" connect guard --agent all --url "$SQUIDBRAKE_URL" --key "$SQUIDBRAKE_AGENT_KEY" --yes 2>&1 | sed 's/^/  /'
+  # check every connected agent's hook end to end (it sends one harmless 'echo' through the dashboard)
+  "$SB" doctor --quick 2>/dev/null | sed -n '/\[/p'
   say ""
   say "Last step: quit and reopen your agents (Cursor: Cmd+Q, then open it again), then work as usual."
   say "Your dashboard: $SQUIDBRAKE_URL/dashboard"
-  say "To use the squidbrake command yourself (squidbrake connect status), open a new terminal window first."
+  say "Something not right later? Open a new terminal and run:  squidbrake doctor"
   say ""
   exit 0
 fi

@@ -14,6 +14,8 @@ MAX_BYTES = 250_000
 
 
 def path() -> Path:
+    if os.getenv("SQUIDBRAKE_HOOKLOG"):       # tests point it elsewhere
+        return Path(os.environ["SQUIDBRAKE_HOOKLOG"])
     return Path(os.getenv("SQUIDBRAKE_HOME") or Path.home() / ".squidbrake") / "hooks.log"
 
 

@@ -20,10 +20,11 @@ def home(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.setenv("SQUIDBRAKE_HOME", str(tmp_path / ".squidbrake"))
+    monkeypatch.setenv("SQUIDBRAKE_HOOKLOG", str(tmp_path / ".squidbrake" / "hooks.log"))   # one per test
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
     monkeypatch.setattr(connect.shutil, "which", lambda name: None)
     monkeypatch.setattr(connect, "_cursor_version", lambda: "2.4.1")
-    monkeypatch.setattr(connect, "_cursor_hook_errors", lambda: [])
+    monkeypatch.setattr(connect, "_cursor_hooks_log", lambda: {"loaded": None, "ran": False, "errors": []})
     monkeypatch.setattr(connect, "_user_dir", lambda: tmp_path / "AppData")     # no real VS Code
 
     class R:
@@ -117,3 +118,42 @@ def test_run_hook_reads_each_agents_answer(tmp_path):
     assert connect._run_hook(f'"{py}" "{allow}"', {}) == (True, "")
     assert connect._hook_commands({"hooks": {"x": [{"hooks": [{"command": "/p/python /a/agent_hook.py codex --url u"}]}]}}) == \
         ["/p/python /a/agent_hook.py codex --url u"]
+    # Claude Code: the program in "command", its arguments in "args"
+    claude = {"hooks": {"PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "/p/python",
+              "args": ["/a/claude_hook.py", "--url", URL, "--key", KEY, "--source", "claude-code"]}]}],
+              "Other": [{"hooks": [{"command": "someone-elses-hook --token x"}]}]}}
+    [cmd] = connect._hook_commands(claude)
+    assert "claude_hook.py" in cmd and URL in cmd and KEY in cmd and "someone-elses" not in cmd
+
+
+def test_claude_code_hook_with_args_counts_as_connected(home, capsys, monkeypatch):
+    tmp, _ = home
+    (tmp / ".claude").mkdir()
+    (tmp / ".claude" / "settings.json").write_text(json.dumps({"hooks": {"PreToolUse": [{"matcher": "*", "hooks": [
+        {"type": "command", "command": sys.executable,
+         "args": ["/x/claude_hook.py", "--url", URL, "--key", KEY, "--source", "claude-code"]}]}]}}), encoding="utf-8")
+    monkeypatch.setattr(connect, "_run_hook", lambda cmd, ev: (True, ""))
+    assert run("--quick") == 0
+    out = capsys.readouterr().out
+    assert "[OK] claude-code: connected; the hook works" in out and "Dashboard answers: " + URL in out
+
+
+def test_reads_cursors_own_hooks_log(tmp_path, monkeypatch):
+    log = tmp_path / "Library" / "Application Support" / "Cursor" / "logs" / "20261005T160707" / "window2" / "out"
+    log.mkdir(parents=True)
+    (log / "cursor.hooks.workspaceId-x.log").write_text("\n".join([
+        "[t] Loaded 0 user hook(s) for steps: ",
+        "[t] ERROR: Failed to parse project hooks configuration",          # a project without hooks: not a problem
+        "[t] [Claude] Unknown Claude Code event \"PostToolUseFailure\", skipping",
+        "[t] Loaded 2 user hook(s) for steps: beforeShellExecution, beforeReadFile",
+        "[t] ERROR: hook command not found: /old/python",
+    ]), encoding="utf-8")
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setenv("APPDATA", str(tmp_path / "none"))
+    got = connect._cursor_hooks_log()
+    assert got["loaded"] == "beforeShellExecution, beforeReadFile" and got["ran"] is False
+    assert got["errors"] == ["[t] ERROR: hook command not found: /old/python"]
+    (log / "cursor.hooks.workspaceId-x.log").write_text(
+        "[t] Loaded 2 user hook(s) for steps: beforeShellExecution\n[t] Hook step requested: beforeShellExecution\n",
+        encoding="utf-8")
+    assert connect._cursor_hooks_log()["ran"] is True
