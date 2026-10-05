@@ -18,7 +18,7 @@ ROOT = HERE.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(HERE))
 
-from scenarios import SCENARIOS  # noqa: E402
+from scenarios import EDGE_CASES, SCENARIOS  # noqa: E402
 
 VERB = {"deny": "BLOCKED", "review": "HELD for a person", "allow": "ALLOWED"}
 
@@ -69,14 +69,14 @@ def outcome(results: list[dict]) -> str:
     return "not_stopped" if any(r["outcome"] == "not_stopped" for r in results) else "stopped"
 
 
-def run_all(client, headers: dict, approver: dict) -> list[tuple[dict, list[dict]]]:
-    """Every scenario against the shipped rules.yaml (swapped in for the replay, then put back)."""
+def run_all(client, headers: dict, approver: dict, scenarios: list[dict] | None = None) -> list[tuple[dict, list[dict]]]:
+    """Every scenario (or the ones given) against the shipped rules.yaml (swapped in for the replay, then put back)."""
     import server
     shipped = server.Policy(ROOT / "rules.yaml")
     shipped._maybe_reload()
     previous, server.policy = server.policy, shipped
     try:
-        return [(s, replay(client, headers, approver, s)) for s in SCENARIOS]
+        return [(s, replay(client, headers, approver, s)) for s in (SCENARIOS if scenarios is None else scenarios)]
     finally:
         server.policy = previous
 
@@ -93,6 +93,7 @@ def main() -> int:
         pass
     with TestClient(server.app) as client:
         outcomes = run_all(client, {}, {})
+        edge = run_all(client, {}, {}, EDGE_CASES)
     failed_checks = 0
     failed_outcomes = 0
     stopped = 0
@@ -117,6 +118,18 @@ def main() -> int:
     outcome_matches = len(outcomes) - failed_outcomes
     print(f"\n{stopped} of {total} harmful actions stopped across {len(outcomes)} incidents; "
           f"{not_stopped} not stopped. {matched} action checks and {outcome_matches} expected outcomes matched.")
+
+    print("\nEdge cases (not public incidents: ways around the gateway people asked about)")
+    for s, results in edge:
+        print(f"\n{s['title']}")
+        for r in results:
+            mark = "✓" if r["ok"] else "✗"
+            failed_checks += not r["ok"]
+            what = r["input"].get("command") or f"{r['tool']} {r['input']}"
+            print(f"  {mark} {VERB[r['decision']]}: {str(what)[:90]}")
+        failed_outcomes += outcome(results) != s.get("expected_outcome", "stopped")
+        if outcome(results) == "not_stopped":
+            print(f"      NOT STOPPED: {s['not_stopped_because']}")
     return 1 if failed_checks or failed_outcomes else 0
 
 

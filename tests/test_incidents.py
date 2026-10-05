@@ -16,7 +16,7 @@ if "server" not in sys.modules:   # run on its own: a throwaway database (test_s
 
 import pytest  # noqa: E402
 
-from scenarios import SCENARIOS  # noqa: E402
+from scenarios import EDGE_CASES, SCENARIOS  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -25,10 +25,11 @@ def outcomes():
     import replay
     import server
     with TestClient(server.app) as client:
-        return dict((s["id"], r) for s, r in replay.run_all(client, {"X-Gateway-Key": "k1"}, {"X-Gateway-Key": "k2"}))
+        keys = ({"X-Gateway-Key": "k1"}, {"X-Gateway-Key": "k2"})
+        return dict((s["id"], r) for s, r in replay.run_all(client, *keys) + replay.run_all(client, *keys, EDGE_CASES))
 
 
-@pytest.mark.parametrize("scenario", SCENARIOS, ids=[s["id"] for s in SCENARIOS])
+@pytest.mark.parametrize("scenario", SCENARIOS + EDGE_CASES, ids=[s["id"] for s in SCENARIOS + EDGE_CASES])
 def test_incident_matches_expected_outcome(outcomes, scenario):
     import replay
     results = outcomes[scenario["id"]]

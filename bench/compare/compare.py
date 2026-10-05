@@ -28,7 +28,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import replay  # noqa: E402
 import server  # noqa: E402
-from scenarios import SCENARIOS  # noqa: E402
+from scenarios import EDGE_CASES  # noqa: E402
 
 AGT = Path("/opt/agt/agent-governance-claude-code")
 EVERYDAY = [
@@ -95,14 +95,16 @@ def main() -> int:
 
     rows = []
     with TestClient(server.app) as client:
-        for s, results in replay.run_all(client, {}, {}):
+        runs = [("incident", x) for x in replay.run_all(client, {}, {})] + \
+               [("edge case", x) for x in replay.run_all(client, {}, {}, EDGE_CASES)]
+        for kind, (s, results) in runs:
             steps = [st for st in s["steps"] if "expect" in st]
             for st, r in zip(steps, results):
                 name, inp = claude_name(st["tool"]), st["input"]
                 sb = {"deny": "BLOCKED", "review": "HELD", "allow": "ran"}[r["decision"]]
                 if r.get("outcome") == "not_stopped":
-                    sb += " (BCC added after)"
-                rows.append({"set": "incident", "what": s["title"], "tool": name,
+                    sb += " (BCC added after)" if r.get("after_approval") else " (not stopped)"
+                rows.append({"set": kind, "what": s["title"], "tool": name,
                              "call": inp.get("command") or json.dumps(inp)[:70],
                              "dcg": dcg(name, inp, None) if name == "Bash" else "n/a (shell only)",
                              "dcg_all": dcg(name, inp, every_pack) if name == "Bash" else "n/a (shell only)",
