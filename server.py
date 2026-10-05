@@ -1032,8 +1032,21 @@ def history_signals(conn, name: str, input: Any, stored_input: str | None, sourc
     return out
 
 
-def command_signals(name: str, input: Any) -> tuple[list[dict], bool]:
-    """What a shell tool's command actually does (commands.py). -> (signals, only_reads)."""
+def reported_runs(metadata: dict | None) -> list[tuple[str, str]]:
+    """What the hook read underneath the command on the developer's machine (runs.py): a Makefile target's recipe,
+    a package.json script, a shell script. -> [(via, line)]. Checked like the command; it can only add a stop."""
+    found = (metadata or {}).get("runs")
+    out: list[tuple[str, str]] = []
+    for item in found[:20] if isinstance(found, list) else []:
+        if isinstance(item, dict) and isinstance(item.get("lines"), list):
+            via = str(item.get("via") or "what it runs")[:200]
+            out += [(via, l[:1000]) for l in item["lines"][:60] if isinstance(l, str) and l.strip()]
+    return out[:60]
+
+
+def command_signals(name: str, input: Any, metadata: dict | None = None) -> tuple[list[dict], bool]:
+    """What a shell tool's command actually does (commands.py), including what it runs underneath when the hook
+    read that (a Makefile target, a package.json script). -> (signals, only_reads)."""
     cc = policy.commands
     if not any(fnmatch.fnmatchcase(name.lower(), t.lower()) for t in cc["tools"]):
         return [], False
@@ -1041,11 +1054,16 @@ def command_signals(name: str, input: Any) -> tuple[list[dict], bool]:
     if not line:
         return [], False
     reading = commands.read(line)
-    kind = reading.kind
+    kind, message = reading.kind, f"This command {reading.summary()}."
+    for via, inner in reported_runs(metadata):
+        r = commands.read(inner)
+        if r.kind in COMMAND_EFFECT_KEYS and commands.SEVERITY.index(r.kind) > commands.SEVERITY.index(kind):
+            kind = r.kind
+            message = f"This command runs {via}, which {r.summary()}."
     if kind in COMMAND_EFFECT_KEYS:
         if cc[kind] == "off":
             return [], False
-        return [{"check": f"{kind}_command", "effect": cc[kind], "message": f"This command {reading.summary()}."}], False
+        return [{"check": f"{kind}_command", "effect": cc[kind], "message": message}], False
     return [], kind == "read_only"
 
 
@@ -1207,7 +1225,7 @@ def record_event(ev: EventIn, client: str, client_ip: str | None) -> Decision:
             kind=ev.kind, name=ev.name, source=ev.source, client=client, session_id=ev.session_id, input=ev.input
         )
         if decision != "deny":
-            command_found, only_reads = command_signals(ev.name, ev.input)
+            command_found, only_reads = command_signals(ev.name, ev.input, ev.metadata)
             with engine.connect() as conn:
                 # Most telling first: a sequence names the step that caused it; history checks are specific to
                 # the business (who asked for this payment); taint and command checks are more general.

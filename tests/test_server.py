@@ -894,6 +894,20 @@ def test_reported_effects_are_shown_but_never_decide(c, org):
     assert server.reported_effects({"effects": "not a list"}) is None
 
 
+def test_what_a_command_runs_underneath_is_checked_too(c, org):
+    # the hook read the Makefile (runs.py): `make clean` is only as safe as its recipe
+    runs = [{"via": "Makefile target `clean`", "lines": ["echo cleaning", "rm -rf build/ ~/"]}]
+    d = c.post("/v1/events", headers=org["agent"], json={"name": "Bash", "input": {"command": "make clean"},
+                                                          "metadata": {"runs": runs}}).json()
+    assert d["decision"] == "deny" and d["rule_id"] == "command:catastrophic_command"
+    assert "Makefile target `clean`" in d["reason"] and "rm -rf build/ ~/" in d["reason"]
+    # it only ever adds a stop: a harmless recipe doesn't loosen a dangerous command
+    d = c.post("/v1/events", headers=org["agent"], json={"name": "Bash", "input": {"command": "git push --force origin main"},
+                                                          "metadata": {"runs": [{"via": "x", "lines": ["echo hi"]}]}}).json()
+    assert d["decision"] == "review" and "Makefile" not in d["reason"]
+    assert server.reported_runs({"runs": "nope"}) == [] and server.reported_runs({"runs": [{"lines": [3, "ls"]}]}) == [("what it runs", "ls")]
+
+
 def test_emergency_stop(c, org):
     assert c.post("/v1/controls/stop", headers=org["viewer"], json={}).status_code == 403  # viewers can't
     c.post("/v1/controls/stop", headers=org["finance-lead"], json={"agent": "rogue-bot", "reason": "looping"})

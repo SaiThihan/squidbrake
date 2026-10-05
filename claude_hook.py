@@ -28,9 +28,10 @@ import httpx
 try:  # what a command will change, and an undo for what it destroys (both best effort, never fatal)
     import commands
     import effects
+    import runs
     import undo
 except Exception:  # pragma: no cover
-    commands = effects = undo = None
+    commands = effects = runs = undo = None
 
 def _arg(flag: str, env: str, default: str) -> str:
     # Claude Code hook config has no env field, so connect.py passes settings as arguments.
@@ -93,6 +94,11 @@ def pre(ev: dict, http: httpx.Client) -> None:
         try:
             if found := effects.predict(line, ev.get("cwd")):
                 body["metadata"]["effects"] = found
+        except Exception:
+            pass
+        try:  # what `make clean` / `npm run x` / `bash x.sh` runs underneath, so the gateway checks that too
+            if found := runs.expand(line, ev.get("cwd")):
+                body["metadata"]["runs"] = found
         except Exception:
             pass
     try:

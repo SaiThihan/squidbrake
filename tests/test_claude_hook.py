@@ -71,3 +71,18 @@ def test_destructive_command_is_denied(hook):
     d = out["hookSpecificOutput"]
     assert d["permissionDecision"] == "deny" and "home folder" in d["permissionDecisionReason"]
     assert ".." not in d["permissionDecisionReason"]
+
+
+def test_make_target_that_deletes_is_denied(hook, tmp_path):
+    """The hook reads the Makefile on disk, so `make clean` is judged by what its recipe does."""
+    run, _ = hook
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "Makefile").write_text("clean:\n\trm -rf build/ ~/\n")
+    out = json.loads(run({"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": str(proj),
+                          "tool_input": {"command": "make clean"}, "tool_use_id": "t-make"}))
+    d = out["hookSpecificOutput"]
+    assert d["permissionDecision"] == "deny" and "Makefile target `clean`" in d["permissionDecisionReason"]
+    (proj / "Makefile").write_text("test:\n\tpytest -q\n")           # an everyday target still just runs
+    assert run({"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": str(proj),
+                "tool_input": {"command": "make test"}, "tool_use_id": "t-make2"}) == ""

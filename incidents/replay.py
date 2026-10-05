@@ -18,6 +18,7 @@ ROOT = HERE.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(HERE))
 
+import runs  # noqa: E402
 from scenarios import EDGE_CASES, SCENARIOS  # noqa: E402
 
 VERB = {"deny": "BLOCKED", "review": "HELD for a person", "allow": "ALLOWED"}
@@ -28,6 +29,9 @@ def replay(client, headers: dict, approver: dict, scenario: dict) -> list[dict]:
     session = f"incident-{scenario['id']}-{time.time_ns()}"
     source = f"incident:{scenario['id']}"
     results = []
+    # The agent's working folder, as the hooks see it: files the scenario's Write steps create land here (never run),
+    # and shell steps get the metadata the hooks would send, from the same code (runs.py reads Makefiles, scripts).
+    workdir = Path(tempfile.mkdtemp(prefix="sb-replay-"))
     for step in scenario["steps"]:
         if "prompt" in step:
             body = {"name": "user.prompt", "kind": "prompt", "input": {"prompt": step["prompt"]},
@@ -36,6 +40,14 @@ def replay(client, headers: dict, approver: dict, scenario: dict) -> list[dict]:
             body = {"name": step["tool"], "input": step.get("input")}
             if "output" in step:
                 body["output"] = step["output"]
+            inp = step.get("input") or {}
+            if step["tool"] == "Write" and isinstance(inp.get("file_path"), str) and not os.path.isabs(inp["file_path"]):
+                target = workdir / inp["file_path"]
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(inp.get("content", ""), encoding="utf-8")
+            elif step["tool"] in ("Bash", "PowerShell") and isinstance(inp.get("command"), str):
+                if found := runs.expand(inp["command"], str(workdir)):
+                    body["metadata"] = {"runs": found}
         d = client.post("/v1/events", headers=headers, json={**body, "session_id": session, "source": source}).json()
         if "expect" not in step:
             continue

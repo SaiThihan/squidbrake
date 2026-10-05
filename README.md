@@ -343,9 +343,11 @@ Here's what that means in practice:
 - **Caught:** what the agent does through a connected tool. That includes shell commands read before they run
   (`ls && rm -rf ~/`, `bash -c "..."`, `curl ... | sh`), MCP calls, edits to its own settings, hooks and MCP servers
   or to Squidbrake's rules (held for a person), and chains of steps such as backups switched off and then a delete.
+  Through the hooks, what a command runs underneath is read too: a Makefile target's recipe (`make clean`), a
+  `package.json` script (`npm run release`) and a shell script (`bash cleanup.sh`).
 - **Not caught:**
-  - Code the agent writes and then runs. `python cleanup.py` is read as one command, and what the script does
-    inside isn't seen.
+  - Scripts in other languages the agent writes and then runs. `python cleanup.py` is read as one command, and what
+    the script does inside isn't seen. Neither are recipes built while they run (`$(shell ...)`, `eval`).
   - Tools that aren't connected (`squidbrake connect status` shows which are).
   - Damage done inside an MCP server after the call it checks: see the postmark-mcp row in [`incidents/`](incidents/).
 - **For a hostile agent,** add a sandbox (a container or a VM, with no credentials it doesn't need) underneath.

@@ -26,9 +26,10 @@ import httpx
 
 try:  # what a command will change, and an undo for what it destroys (both best effort, never fatal)
     import effects
+    import runs
     import undo
 except Exception:  # pragma: no cover
-    effects = undo = None
+    effects = runs = undo = None
 
 AGENTS = ("cursor", "gemini-cli", "codex", "vscode", "antigravity")
 
@@ -133,7 +134,12 @@ def check(agent: str, name: str, inp: dict, session: str | None) -> None:
     if line:
         try:
             if found := effects.predict(line, cwd):
-                body["metadata"] = {"effects": found}
+                body.setdefault("metadata", {})["effects"] = found
+        except Exception:
+            pass
+        try:  # what `make clean` / `npm run x` / `bash x.sh` runs underneath, so the gateway checks that too
+            if found := runs.expand(line, cwd):
+                body.setdefault("metadata", {})["runs"] = found
         except Exception:
             pass
     try:
