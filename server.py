@@ -2511,6 +2511,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("keys", help="list keys")
     v = sub.add_parser("verify", help="check an evidence file offline (same as: python verify.py FILE)")
     v.add_argument("file")
+    ex = sub.add_parser("explain", help="show how a shell command would be read without running anything")
+    ex.add_argument("command")
     lk = sub.add_parser("lockdown", help="write the policy files IT pushes to every developer machine so each coding "
                                          "agent must go through this gateway")
     lk.add_argument("--url", required=True, help="the gateway's address as developer machines reach it")
@@ -2530,7 +2532,7 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
     return {"run": _cli_run, "init": _cli_init, "add-key": _cli_add_key, "remove-key": _cli_remove_key,
             "keys": _cli_keys, "verify": lambda a: verify.main([a.file]), "pilot": _cli_pilot,
-            "evidence": _cli_evidence, "lockdown": _cli_lockdown}[args.cmd](args)
+            "evidence": _cli_evidence, "lockdown": _cli_lockdown, "explain": _cli_explain}[args.cmd](args)
 
 
 def _cli_lockdown(args) -> int:
@@ -2555,6 +2557,18 @@ def _cli_evidence(args) -> int:
     print(f"Evidence pack for the last {args.days} days written to {out.resolve()}\n"
           f"Open it in a browser; print it to PDF for your auditor.")
     return 0
+
+
+def _cli_explain(args) -> int:
+    policy._maybe_reload()
+    reading = commands.read(args.command)
+    print(f"{reading.kind}: {reading.summary()}")
+    for c in reading.commands:
+        print("  " + c.raw.ljust(14) + " " + c.kind)
+    effect = policy.commands.get(reading.kind)
+    if effect:
+        print(f"  rule: command_checks.{reading.kind} = {effect}")
+    return 0 if reading.kind in ("read_only", "other") else 1
 
 
 def _cli_pilot(args) -> int:
