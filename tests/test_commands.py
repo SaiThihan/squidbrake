@@ -1,10 +1,12 @@
 """commands.py: reading what a shell command does. Cases include real incidents (see the README)."""
+import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
 import commands  # noqa: E402
 
 # Windows commands that ransomware runs, written in pieces: whole, they make antivirus flag this file
@@ -186,3 +188,24 @@ def test_reading_secrets_is_never_just_looking(line):
 @pytest.mark.parametrize("line", ["cat README.md", "cat src/tokenizer.py", "cat docs/environment.md", "ls src"])
 def test_ordinary_reads_stay_read_only(line):
     assert commands.read(line).kind == "read_only"
+
+
+def run_explain(line):
+    return subprocess.run([sys.executable, str(REPO_ROOT / "server.py"), "explain", line],
+                          capture_output=True, text=True)
+
+
+def test_explain_prints_kind_and_breakdown():
+    r = run_explain("git status")
+    assert r.returncode == 0
+    assert "read_only" in r.stdout
+
+    r = run_explain("ls && rm -rf ~/")
+    assert r.returncode == 1
+    assert "catastrophic" in r.stdout and "home folder" in r.stdout
+    assert "ls" in r.stdout and "rm -rf ~/" in r.stdout
+
+
+def test_explain_exit_code_matches_kind():
+    assert run_explain("rm -rf /").returncode == 1
+    assert run_explain("git status").returncode == 0
