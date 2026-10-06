@@ -34,7 +34,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # A PostHog project key only lets someone send events, not read them, so it is safe to ship in the package.
-SHIPPED_KEY = ""     # phc_... from PostHog > Project settings; empty means nothing is ever asked or sent
+SHIPPED_KEY = "phc_muPqCNPamFR8iPaewdgVWqdcrGburJSXeySGHqXatZnU"   # PostHog > Project settings (US); send-only
 POSTHOG_KEY = os.getenv("SQUIDBRAKE_POSTHOG_KEY", SHIPPED_KEY)
 POSTHOG_HOST = os.getenv("SQUIDBRAKE_POSTHOG_HOST", "https://us.i.posthog.com")
 QUIET = {"hook", "agent-hook", "shell-guard", "proxy", "telemetry", "register"}  # never ask, never send
