@@ -191,8 +191,9 @@ def test_ordinary_reads_stay_read_only(line):
 
 
 def run_explain(line):
-    return subprocess.run([sys.executable, str(REPO_ROOT / "server.py"), "explain", line],
-                          capture_output=True, text=True)
+    import os   # the shipped rules, whatever rules file other tests point the gateway at
+    return subprocess.run([sys.executable, str(REPO_ROOT / "server.py"), "explain", line], capture_output=True,
+                          text=True, env={**os.environ, "RULES_PATH": str(REPO_ROOT / "rules.yaml")})
 
 
 def test_explain_prints_kind_and_breakdown():
@@ -209,3 +210,12 @@ def test_explain_prints_kind_and_breakdown():
 def test_explain_exit_code_matches_kind():
     assert run_explain("rm -rf /").returncode == 1
     assert run_explain("git status").returncode == 0
+
+
+def test_explain_says_what_the_gateway_would_do():
+    """The command reader alone calls `git push origin main` "other"; the rules still hold it for a person."""
+    r = run_explain("git push origin main")
+    assert r.stdout.splitlines()[0] == "other"                   # no dangling ": " when there's nothing to explain
+    assert "gateway: waits for a person (approve-git-push)" in r.stdout
+    assert "gateway: blocked" in run_explain("ls && rm -rf ~/").stdout
+    assert "gateway: runs" in run_explain("npm test").stdout

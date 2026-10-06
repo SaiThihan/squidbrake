@@ -2562,12 +2562,27 @@ def _cli_evidence(args) -> int:
 def _cli_explain(args) -> int:
     policy._maybe_reload()
     reading = commands.read(args.command)
-    print(f"{reading.kind}: {reading.summary()}")
+    print(reading.kind + (f": {reading.summary()}" if reading.summary() else ""))
     for c in reading.commands:
         print("  " + c.raw.ljust(14) + " " + c.kind)
     effect = policy.commands.get(reading.kind)
     if effect:
         print(f"  rule: command_checks.{reading.kind} = {effect}")
+    # What the gateway would do with it as a Bash call: the rules (first match wins), then the command checks on top,
+    # the way record_event combines them (without history: no earlier steps here)
+    inp = {"command": args.command}
+    decision, _reason, rule_id, _rule = policy.evaluate(kind="tool_call", name="Bash", source=None, client="cli",
+                                                        session_id=None, input=inp)
+    if decision != "deny":
+        found, only_reads = command_signals("Bash", inp)
+        if hit := next((s for s in found if s["effect"] == "block"), None):
+            decision, rule_id = "deny", f"command:{hit['check']}"
+        elif (hit := next((s for s in found if s["effect"] == "review"), None)) and decision == "allow":
+            decision, rule_id = "review", f"command:{hit['check']}"
+        elif only_reads and decision == "review" and rule_id is None and policy.commands["read_only"] == "allow":
+            decision, rule_id = "allow", "command:read_only"
+    verb = {"deny": "blocked", "review": "waits for a person", "allow": "runs"}[decision]
+    print(f"  gateway: {verb} ({rule_id or 'default: ' + policy.default})")
     return 0 if reading.kind in ("read_only", "other") else 1
 
 
