@@ -16,6 +16,8 @@ The `squidbrake` command (installed with pip):
   squidbrake proxy --app NAME -- CMD an MCP server that checks every call to the app's MCP server CMD first
                                      (same as: python gateway_proxy.py ...)
   squidbrake pilot join CODE --server URL   share usage counts with a pilot (asks first; see pilot.py)
+  squidbrake telemetry [status|on|off]      anonymous usage stats (asked once; see telemetry.py)
+  squidbrake register EMAIL          tell the Squidbrake team who you are (optional, asks first)
   squidbrake add-key NAME | keys | verify FILE | ...   see: squidbrake --help
 
 Data, keys and rules.yaml live in ~/.squidbrake (set SQUIDBRAKE_HOME to move them).
@@ -38,6 +40,18 @@ def main() -> int:
         from squidbrake import __version__
         print(f"squidbrake {__version__}")
         return 0
+    from squidbrake import __version__
+    if argv[:1] == ["telemetry"]:
+        import telemetry
+        return telemetry.main(argv[1:], __version__)
+    if argv[:1] == ["register"]:
+        import telemetry
+        return telemetry.register(argv[1:], __version__)
+    try:   # asks once in a terminal; never in the hooks, scripts or CI (see telemetry.py)
+        import telemetry
+        telemetry.maybe(argv, __version__)
+    except Exception:
+        pass
     if argv[:1] == ["doctor"]:     # everything a person would check by hand, with what to fix
         import connect
         connect.main(["doctor", *argv[1:]])

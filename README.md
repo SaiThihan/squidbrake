@@ -349,6 +349,8 @@ Squidbrake **fails closed**. Guarded tool calls are blocked if the gateway is un
 ### Does my data leave my machine?
 
 No. Squidbrake is **self-hosted** and runs on your laptop or your own server. Your data stays in your environment.
+The only things that ever leave are the ones you said yes to: anonymous usage stats (command name, version, OS)
+and, if you join, usage counts. See [Usage sharing](#usage-sharing-opt-in).
 
 ### Does Squidbrake use an LLM to make decisions?
 
@@ -428,8 +430,19 @@ python tests/e2e_business_scenario.py
 
 ## Usage sharing (opt-in)
 
-Squidbrake sends nothing anywhere by default. There are two ways to share, and both show exactly what will be sent
-and ask first (the default answer is no):
+Squidbrake sends nothing anywhere without asking first.
+
+**Anonymous usage stats.** The first time you run `squidbrake` in a terminal, it asks once whether to send
+anonymous stats (Enter means yes): the command name (e.g. `doctor`, never its arguments), version, OS, Python
+version and country, plus the gateway's usage counts described below (what it allowed, held and blocked). Never
+commands an agent ran, files, prompts, rules, keys or the audit trail. The agent hooks never send anything, and
+scripts, CI and `--yes` are never asked. `squidbrake telemetry off` (or
+`SQUIDBRAKE_TELEMETRY=0`, or `DO_NOT_TRACK=1`) stops it; `squidbrake telemetry status` shows exactly what is sent.
+If you'd like the team to know who you are, `squidbrake register you@company.com` (asks first). Details:
+[`telemetry.py`](telemetry.py).
+
+**Usage counts.** There are two ways to share counts of what Squidbrake did, and both show exactly what will be
+sent and ask first (the default answer is no):
 
 - `squidbrake connect all`, run in a terminal, asks once at the end whether to share counts with the Squidbrake
   team. It never asks again after a no, and never asks with `--yes` or in scripts.
