@@ -51,6 +51,8 @@ table.cover tr:first-child td { border-top:0; }
 const D = __DATA__;
 const app = document.getElementById("app");
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+// a view counts only once the page runs in a browser: link previews fetch the page but don't run it
+if (!D.missing) fetch(`/v1/pilot/${encodeURIComponent(D.code)}/seen`, { method: "POST" }).catch(() => {});
 
 if (D.hosted && !D.missing) {
   hostedPage();

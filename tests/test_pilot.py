@@ -59,6 +59,19 @@ def test_nothing_is_sent_without_joining(tmp_path, monkeypatch):
     assert pilot.send(tmp_path, {"days": {}}) is False and calls == []
 
 
+def test_link_previews_are_not_views(insights):
+    """LinkedIn, Slack and mail scanners fetch a pasted link for its preview; only the page running in a browser counts."""
+    admin = {"X-Admin-Key": "admin-test-key"}
+    code = insights.post("/v1/admin/pilots", headers=admin, json={"company": "Previewed"}).json()["code"]
+    views = lambda: next(p for p in insights.get("/v1/admin/overview", headers=admin).json()["pilots"]
+                         if p["code"] == code)["page_views"]
+    insights.get(f"/start/{code}", headers={"User-Agent": "LinkedInBot/1.0 (compatible; Mozilla/5.0)"})
+    insights.post(f"/v1/pilot/{code}/seen", headers={"User-Agent": "Slackbot-LinkExpanding 1.0"})
+    assert views() == 0
+    insights.post(f"/v1/pilot/{code}/seen", headers={"User-Agent": "Mozilla/5.0 (Macintosh) Chrome/129.0 Safari/537.36"})
+    assert views() == 1
+
+
 def test_join_ping_leave(insights, tmp_path, monkeypatch):
     admin = {"X-Admin-Key": "admin-test-key"}
     assert insights.post("/v1/admin/pilots", json={"company": "Acme"}).status_code == 401

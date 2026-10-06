@@ -393,6 +393,21 @@ def pilot_status(code: str):
     return {"state": p["state"], "keys_ready": bool(p["admin_key"]), "keys_shown": bool(p["keys_revealed_at"])}
 
 
+PREVIEW_BOTS = re.compile(r"bot|crawl|spider|preview|facebookexternalhit|slack|whatsapp|telegram|discord|skype|"
+                          r"linkedin|embedly|headless|lighthouse|python-|curl|wget|go-http|okhttp", re.I)
+
+
+@app.post("/v1/pilot/{code}/seen")
+def pilot_seen(code: str, request: Request):
+    """The start page, open in a browser: one view. Link previews and scanners don't run the page, or say what they are."""
+    if not CODE_RE.match(code) or PREVIEW_BOTS.search(request.headers.get("user-agent", "")):
+        return {"ok": False}
+    with _lock, db() as c:
+        c.execute("UPDATE pilots SET page_views=page_views+1, first_view=COALESCE(first_view, ?), last_view=? WHERE code=?",
+                  (now(), now(), code))
+    return {"ok": True}
+
+
 @app.post("/v1/pilot/{code}/keys")
 def reveal_keys(code: str):
     """The founder's keys for their hosted gateway, shown once on their start page and then forgotten here."""
@@ -716,8 +731,8 @@ def start_page(code: str, request: Request):
         p = c.execute("SELECT * FROM pilots WHERE code=?", (code,)).fetchone()
         if not p:
             return HTMLResponse(PAGE("start.html").replace("__DATA__", json.dumps({"missing": True})), status_code=404)
-        c.execute("UPDATE pilots SET page_views=page_views+1, first_view=COALESCE(first_view, ?), last_view=? WHERE code=?",
-                  (now(), now(), code))
+    # Not counted here: LinkedIn, Slack, WhatsApp and mail scanners fetch a link the moment it's pasted, to draw a
+    # preview. The page counts a view itself (/seen) once it runs in a browser.
     data = {"company": p["company"], "code": code, "server": public_url(request), "contact": CONTACT,
             "hosted": bool(p["hosted"]), "dashboard": dashboard_url(p["subdomain"]), "state": p["state"],
             "keys_ready": bool(p["admin_key"]), "keys_shown": bool(p["keys_revealed_at"])}
@@ -726,7 +741,7 @@ def start_page(code: str, request: Request):
 
 @app.get("/team", response_class=HTMLResponse)
 def team_page():
-    return HTMLResponse(PAGE("team.html").replace("__CONTACT__", json.dumps(CONTACT).replace("</", "<\/")))
+    return HTMLResponse(PAGE("team.html").replace("__CONTACT__", json.dumps(CONTACT).replace("</", "<\\/")))
 
 
 @app.get("/admin", response_class=HTMLResponse)
